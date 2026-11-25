@@ -1,6 +1,6 @@
-import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=10";
-import { detectPage, warmUp } from "./lib/detect.js?v=3";
-import { processPage, warmUpFlatten } from "./lib/flatten.js?v=5";
+import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=12";
+import { detectPage, warmUp } from "./lib/detect.js?v=6";
+import { processPage, warmUpFlatten } from "./lib/flatten.js?v=7";
 import { makePdf, packBits } from "./lib/pdf.js?v=2";
 import * as store from "./lib/store.js?v=2";
 
@@ -14,7 +14,7 @@ cvReady().catch(() => {}); // işleyiciyi önceden ısıt
 warmUp(); // yapay zeka köşe bulucuyu önceden yükle
 
 // Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
-const APP_VERSION = "13";
+const APP_VERSION = "14";
 fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
   v = v.trim();
   if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
