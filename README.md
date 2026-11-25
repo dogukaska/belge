@@ -4,4 +4,6 @@ Kamerayla belge tarar: sayfanın kenarlarını kendisi bulur, sabit tutunca otom
 
 Adres: https://dogukaska.github.io/belge/
 
-Kütüphaneler: [OpenCV.js](https://opencv.org) (Apache-2.0), [JSZip](https://github.com/Stuk/jszip) (MIT). PDF yazıcı kendi kodumuz (`lib/pdf.js`).
+Sayfa köşeleri: [scanic](https://github.com/marquaye/scanic) yapay zeka köşe bulucusu (DocCornerNet, MIT) + OpenCV ile kenar çizgisi ince ayarı.
+
+Kütüphaneler: [OpenCV.js](https://opencv.org) (Apache-2.0), [scanic / scanic-ml](https://github.com/marquaye/scanic) (MIT), [JSZip](https://github.com/Stuk/jszip) (MIT). PDF yazıcı kendi kodumuz (`lib/pdf.js`).

@@ -1,4 +1,5 @@
-import { cvReady, detect, warp, smallFrame, fullFrame } from "./lib/cv.js?v=6";
+import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=7";
+import { detectPage, warmUp } from "./lib/detect.js?v=2";
 import { makePdf, packBits } from "./lib/pdf.js?v=2";
 import * as store from "./lib/store.js?v=2";
 
@@ -9,6 +10,7 @@ const DEFAULT_MODE = "color";
 const MAX_SIDE = 3200;
 
 cvReady().catch(() => {}); // işleyiciyi önceden ısıt
+warmUp(); // yapay zeka köşe bulucuyu önceden yükle
 
 let tab = "doc";
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
@@ -128,7 +130,7 @@ async function addFiles(files) {
       c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
       c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
       bmp.close?.();
-      const q = await detect(smallFrame(c, c.width, c.height)).catch(() => null);
+      const q = (await detectPage(c, c.width, c.height, { max: 1024, minScore: 0.4 }).catch(() => null))?.quad || null;
       const blob = await toBlob(c, "image/jpeg", 0.92);
       const p = await addPage(blob, c.width, c.height, q);
       if (!q && files.length === 1 && p) openEdit(p, true);
@@ -291,7 +293,7 @@ async function loop() {
         if (!cam.armed && (cam.moving >= 2 || mv > MOTION * 1.8)) { cam.armed = true; }
       }
       cam.prevMs = ms;
-      q = await detect(fr);
+      q = (await detectPage(fr))?.quad || null;
       cam.sig = q ? signature(copy, q) : null;
     } catch (e) {}
     cam.busy = false;
@@ -329,7 +331,7 @@ async function loop() {
       drawQuad(null);
       setProgress(0);
       if (cam.missing > 30 && !cam.armed) { cam.armed = true; } // ≈3 sn sayfa yoksa yeniden hazır ol
-      $("cam-hint").textContent = "Sayfayı kadraja al";
+      $("cam-hint").textContent = "Sayfanın tamamını kadraja al";
     }
   }
   requestAnimationFrame(() => setTimeout(loop, 60));
@@ -382,10 +384,9 @@ async function doCapture(quad) {
   navigator.vibrate?.(30);
   setProgress(0);
   $("cam-hint").textContent = "Çekildi";
-  if (!quad) {
-    // elle çekimde o anki kareden bul
-    quad = await detect(smallFrame(c, vw, vh, 640)).catch(() => null);
-  }
+  // çekilen karede daha yüksek çözünürlükte yeniden bul: köşeler daha hassas olur
+  const fine = (await detectPage(c, vw, vh, { max: 1280, minScore: 0.4 }).catch(() => null))?.quad || null;
+  if (fine && (!quad || qdist(fine, quad) < 0.06)) quad = fine;
   const blob = await toBlob(c, "image/jpeg", 0.92);
   c.width = c.height = 0;
   cam.shots++;
@@ -623,7 +624,7 @@ function bookAdd(origBlob, quad) {
   bookQueue = bookQueue.then(async () => {
     try {
       const bmp = await bitmapOf(origBlob);
-      if (!quad) quad = await detect(smallFrame(bmp, bmp.width, bmp.height, 640)).catch(() => null);
+      if (!quad) quad = (await detectPage(bmp, bmp.width, bmp.height, { max: 1280, minScore: 0.4 }).catch(() => null))?.quad || null;
       const img = fullFrame(bmp, bmp.width, bmp.height);
       bmp.close?.();
       const out = await warp(img, quad || defaultQuad(), mode === "text" ? "bw" : "gray", BOOK_SIDE);
