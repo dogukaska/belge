@@ -1,5 +1,6 @@
-import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=7";
+import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=8";
 import { detectPage, warmUp } from "./lib/detect.js?v=2";
+import { processPage, warmUpFlatten } from "./lib/flatten.js?v=2";
 import { makePdf, packBits } from "./lib/pdf.js?v=2";
 import * as store from "./lib/store.js?v=2";
 
@@ -48,6 +49,22 @@ function rotated(canvas, rot) {
 
 const toBlob = (c, type = "image/jpeg", q = 0.9) => new Promise((r) => c.toBlob(r, type, q));
 
+// A4'e yakın sayfaları tam A4 oranına getir (dikey ya da yatay)
+function toA4(c) {
+  const A4 = Math.SQRT2, r = c.height / c.width;
+  let w = c.width, h = c.height;
+  if (Math.abs(r - A4) / A4 < 0.1) h = Math.round(w * A4);
+  else if (Math.abs(1 / r - A4) / A4 < 0.1) w = Math.round(h * A4);
+  else return c;
+  if (w === c.width && h === c.height) return c;
+  const o = document.createElement("canvas");
+  o.width = w; o.height = h;
+  const ox = o.getContext("2d");
+  ox.imageSmoothingQuality = "high";
+  ox.drawImage(c, 0, 0, w, h);
+  return o;
+}
+
 async function bitmapOf(blob) {
   return createImageBitmap(blob, { imageOrientation: "from-image" });
 }
@@ -57,8 +74,8 @@ async function render(p) {
   const bmp = await bitmapOf(p.orig);
   const img = fullFrame(bmp, bmp.width, bmp.height);
   bmp.close?.();
-  const out = await warp(img, p.quad, p.mode, MAX_SIDE);
-  const c = rotated(canvasFromImageData(out), p.rot);
+  const out = await processPage(img, p.quad, p.mode, p.flat !== false, MAX_SIDE);
+  const c = rotated(toA4(canvasFromImageData(out)), p.rot);
   p.out = await toBlob(c, "image/jpeg", p.mode === "bw" ? 0.85 : 0.9);
   p.w = c.width; p.h = c.height;
   if (p.url) URL.revokeObjectURL(p.url);
@@ -121,6 +138,7 @@ window.addEventListener("beforeunload", (e) => { if (pages.length) { e.preventDe
 // Galeriden ekleme
 // =====================================================================
 async function addFiles(files) {
+  warmFlat();
   for (const f of files) {
     try {
       const bmp = await bitmapOf(f);
@@ -214,7 +232,11 @@ function smoothQuad(q) {
   return cam.smooth;
 }
 
+let flatWarm = false;
+function warmFlat() { if (!flatWarm) { flatWarm = true; warmUpFlatten(); } }
+
 async function openCamera() {
+  warmFlat();
   $("cam").classList.remove("hidden");
   document.body.classList.add("noscroll");
   $("cam-hint").textContent = "Kamera açılıyor…";
@@ -420,14 +442,20 @@ window.addEventListener("resize", () => { if (!cam.on) drawQuad(null); });
 // =====================================================================
 // SAYFA DÜZENLEME
 // =====================================================================
-const ed = { p: null, cropping: false, quad: null, mode: null, rot: 0, origUrl: null, drag: -1 };
+const ed = { p: null, cropping: false, quad: null, mode: null, rot: 0, flat: true, origUrl: null, drag: -1 };
+function markFlat() {
+  $("ed-flat").classList.toggle("on", ed.flat);
+  $("ed-flat").querySelector("span").textContent = ed.flat ? "Düzleştirme açık" : "Düzleştirme kapalı";
+}
 
 function openEdit(p, startCrop = false) {
   ed.p = p;
   ed.quad = p.quad.map((q) => ({ ...q }));
   ed.mode = p.mode;
   ed.rot = p.rot;
+  ed.flat = p.flat !== false;
   ed.cropping = false;
+  markFlat();
   $("ed-title").textContent = `Sayfa ${pages.indexOf(p) + 1}`;
   $("edit").classList.remove("hidden");
   document.body.classList.add("noscroll");
@@ -456,7 +484,7 @@ function showResult() {
 async function preview() {
   // değişikliği önizle (geçici)
   const p = ed.p;
-  const tmp = { ...p, quad: ed.quad, mode: ed.mode, rot: ed.rot, url: null };
+  const tmp = { ...p, quad: ed.quad, mode: ed.mode, rot: ed.rot, flat: ed.flat, url: null };
   $("ed-busy").classList.remove("hidden");
   try { await render(tmp); $("ed-img").src = tmp.url; ed.tmp?.url && URL.revokeObjectURL(ed.tmp.url); ed.tmp = tmp; }
   catch (e) { alert(e.message); }
@@ -524,14 +552,19 @@ $("ed-rot").addEventListener("click", () => {
   if (ed.cropping) { toggleCrop(); } else preview();
 });
 $("ed-crop").addEventListener("click", toggleCrop);
+$("ed-flat").addEventListener("click", () => {
+  ed.flat = !ed.flat;
+  markFlat();
+  if (ed.cropping) toggleCrop(); else preview();
+});
 $("ed-close").addEventListener("click", () => { if (ed.tmp?.url) URL.revokeObjectURL(ed.tmp.url); ed.tmp = null; closeEdit(); });
 $("ed-ok").addEventListener("click", async () => {
   const p = ed.p;
-  const changed = ed.cropping || ed.mode !== p.mode || ed.rot !== p.rot || qdist(ed.quad, p.quad) > 1e-4;
+  const changed = ed.cropping || ed.mode !== p.mode || ed.rot !== p.rot || ed.flat !== (p.flat !== false) || qdist(ed.quad, p.quad) > 1e-4;
   if (ed.cropping) { ed.cropping = false; $("ed-svg").innerHTML = ""; if (ed.tmp?.url) URL.revokeObjectURL(ed.tmp.url); ed.tmp = null; }
   if (changed) {
-    p.quad = ed.quad; p.mode = ed.mode; p.rot = ed.rot; p.guessed = false;
-    if (ed.tmp && ed.tmp.quad === ed.quad && ed.tmp.mode === ed.mode && ed.tmp.rot === ed.rot) {
+    p.quad = ed.quad; p.mode = ed.mode; p.rot = ed.rot; p.flat = ed.flat; p.guessed = false;
+    if (ed.tmp && ed.tmp.quad === ed.quad && ed.tmp.mode === ed.mode && ed.tmp.rot === ed.rot && ed.tmp.flat === ed.flat) {
       if (p.url) URL.revokeObjectURL(p.url);
       p.out = ed.tmp.out; p.url = ed.tmp.url; p.w = ed.tmp.w; p.h = ed.tmp.h;
       ed.tmp = null;
@@ -627,7 +660,7 @@ function bookAdd(origBlob, quad) {
       if (!quad) quad = (await detectPage(bmp, bmp.width, bmp.height, { max: 1280, minScore: 0.4 }).catch(() => null))?.quad || null;
       const img = fullFrame(bmp, bmp.width, bmp.height);
       bmp.close?.();
-      const out = await warp(img, quad || defaultQuad(), mode === "text" ? "bw" : "gray", BOOK_SIDE);
+      const out = await processPage(img, quad || defaultQuad(), mode === "text" ? "bw" : "gray", true, BOOK_SIDE);
       const c = canvasFromImageData(out);
       const blob = mode === "text" ? await toBlob(c, "image/png") : await toBlob(c, "image/jpeg", 0.78);
       const t = document.createElement("canvas");
