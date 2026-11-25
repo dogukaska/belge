@@ -14,4 +14,5 @@ Bu hesaptaki bütün uygulamalar (ana menü dogukaska.github.io dahil) aynı gö
 - Her uygulamanın üstünde ana menüye dönen "Uygulamalar" bağlantısı (`href="/"`) olur.
 - Yeni uygulama yapılınca `dogukaska.github.io/apps.js` listesine eklenir (simgesi `icons.js` içine).
 - Her şey tarayıcıda çalışır, dosyalar hiçbir sunucuya yüklenmez. Kütüphaneler `vendor/` içinde tutulur.
+- **Sürüm etiketi:** sayfa altında kısa biçimde `v13` gibi gösterilir (sürüm numarası `version.txt` ile aynı).
 - **Önbellek:** `index.html` içindeki `style.css`, `theme.js`, `app.js` bağlantılarında `?v=…` sürüm numarası var. Bu dosyalardan biri değişince sürüm numarasını artır; yoksa telefonlar eski dosyayı kullanır.
