@@ -114,3 +114,26 @@ button:disabled { opacity: .5; cursor: default; }
 
 footer { color: var(--mute); font-size: 0.82rem; padding-bottom: 30px; }
 footer a { color: inherit; }
+
+.tabs { display: flex; gap: 4px; border-radius: 999px; padding: 4px; width: fit-content; }
+.tab { border: 0; background: none; color: var(--mute); padding: 9px 16px; border-radius: 999px; font: inherit; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+.tab.active { background: var(--solid); color: var(--solid-ink); }
+#tab-book > * + * { margin-top: 14px; }
+.title-in { width: 100%; font: inherit; font-size: 1.05rem; color: var(--ink); background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 11px 14px; margin-bottom: 8px; }
+.title-in:focus { outline: none; border-color: var(--ink); }
+.row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 0; }
+.lbl { width: 80px; color: var(--mute); font-size: 0.9rem; }
+.bk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.pages.small { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+.pages.small .page { padding: 3px; border-radius: 10px; }
+.pages.small .page img { border-radius: 6px; }
+.pages.small .num { min-width: 18px; height: 18px; font-size: 10px; bottom: 4px; right: 4px; padding: 0 4px; }
+.progress { margin-top: 12px; }
+.progress .hint { display: block; margin-top: 6px; }
+.bar { height: 4px; background: var(--soft); border-radius: 9px; overflow: hidden; }
+.bar > div { height: 100%; width: 0; background: var(--ink); transition: width .2s; }
+dialog#bk-view { border-radius: 20px; padding: 14px; width: min(520px, 94vw); color: var(--ink); background: var(--bg); border: 1px solid var(--line); }
+dialog#bk-view::backdrop { background: rgba(20,21,23,.5); }
+#bk-view img { width: 100%; max-height: 70vh; object-fit: contain; border-radius: 8px; display: block; background: #faf9f6; }
+#bk-view .actions { justify-content: center; }
+.cam-count { position: absolute; top: calc(env(safe-area-inset-top) + 70px); left: 50%; transform: translateX(-50%); font-size: .9rem; color: #d8d6d1; }

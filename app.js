@@ -1,5 +1,6 @@
-import { cvReady, detect, warp, smallFrame, fullFrame } from "./lib/cv.js?v=1";
-import { makePdf } from "./lib/pdf.js?v=1";
+import { cvReady, detect, warp, smallFrame, fullFrame } from "./lib/cv.js?v=6";
+import { makePdf, packBits } from "./lib/pdf.js?v=2";
+import * as store from "./lib/store.js?v=2";
 
 const $ = (id) => document.getElementById(id);
 const pages = [];          // { id, orig: Blob, ow, oh, quad, mode, rot, out: Blob, w, h, url }
@@ -8,6 +9,15 @@ const DEFAULT_MODE = "color";
 const MAX_SIDE = 3200;
 
 cvReady().catch(() => {}); // işleyiciyi önceden ısıt
+
+let tab = "doc";
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
+  tab = t.dataset.tab;
+  document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
+  $("tab-doc").classList.toggle("hidden", tab !== "doc");
+  $("tab-book").classList.toggle("hidden", tab !== "book");
+  if (tab === "book") bookRefresh();
+}));
 
 // =====================================================================
 // Yardımcılar
@@ -136,8 +146,71 @@ for (const id of ["pick", "pick2"]) {
 // KAMERA
 // =====================================================================
 const video = $("video");
-const cam = { stream: null, on: false, busy: false, auto: true, hist: [], lastQuad: null, armed: true, cool: 0, shots: 0, missing: 0 };
-const STABLE_MS = 900, TOL = 0.018;
+const cam = { stream: null, on: false, busy: false, auto: true, hist: [], lastQuad: null, armed: true, cool: 0, shots: 0, missing: 0, sig: null, lastSig: null };
+
+// Sayfanın kendi içeriğinin parmak izi (sayfa içinden örneklenir): el titreyince değişmez, sayfa çevrilince değişir
+function signature(img, q) {
+  const W = img.width, H = img.height, d = img.data, NX = 8, NY = 11, out = new Float32Array(NX * NY);
+  const at = (u, v) => {
+    // dörtgen içinde (u,v) noktası (çift doğrusal)
+    const top = { x: q[0].x + (q[1].x - q[0].x) * u, y: q[0].y + (q[1].y - q[0].y) * u };
+    const bot = { x: q[3].x + (q[2].x - q[3].x) * u, y: q[3].y + (q[2].y - q[3].y) * u };
+    return { x: (top.x + (bot.x - top.x) * v) * W, y: (top.y + (bot.y - top.y) * v) * H };
+  };
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    let sum = 0, n = 0;
+    for (let b = 0; b < 3; b++) for (let a = 0; a < 3; a++) {
+      const p = at(0.08 + (i + (a + 0.5) / 3) * 0.84 / NX, 0.08 + (j + (b + 0.5) / 3) * 0.84 / NY);
+      const x = Math.max(0, Math.min(W - 1, p.x | 0)), y = Math.max(0, Math.min(H - 1, p.y | 0)), k = (y * W + x) * 4;
+      sum += d[k] + d[k + 1] + d[k + 2]; n++;
+    }
+    out[j * NX + i] = sum / n;
+  }
+  // ışık değişimine dayanıklı olsun: ortalamayı çıkar, yaya böl
+  let m = 0; for (const v of out) m += v; m /= out.length;
+  let sd = 0; for (const v of out) sd += (v - m) ** 2; sd = Math.sqrt(sd / out.length) || 1;
+  for (let i = 0; i < out.length; i++) out[i] = (out[i] - m) / sd;
+  return out;
+}
+// Kare kare hareket ölçüsü (bütün kare, kaba bloklar): sayfa çevirirken el ve sayfa büyük hareket yaratır
+function motionSig(img) {
+  const W = img.width, H = img.height, d = img.data, NX = 24, NY = 16, out = new Float32Array(NX * NY);
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    let sum = 0;
+    for (let b = 0; b < 4; b++) for (let a = 0; a < 4; a++) {
+      const x = Math.min(W - 1, ((i + (a + 0.5) / 4) * W / NX) | 0), y = Math.min(H - 1, ((j + (b + 0.5) / 4) * H / NY) | 0), k = (y * W + x) * 4;
+      sum += d[k] + d[k + 1] + d[k + 2];
+    }
+    out[j * NX + i] = sum / 48;
+  }
+  return out;
+}
+function sigDiff(a, b) {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+  return s / a.length;
+}
+
+const STABLE_MS = 900, TOL = 0.028, SIG_NEW = 0.9, MOTION = 22;
+
+// Çerçeveyi yumuşat: tek karelik sıçramaları yok say, küçük titremeleri ortala
+function smoothQuad(q) {
+  if (!q) { cam.far = 0; return cam.smooth; }
+  if (!cam.smooth) { cam.smooth = q; cam.far = 0; return q; }
+  const d = qdist(cam.smooth, q);
+  if (d > 0.08) {
+    // çok farklı: art arda gelirse yeni yer kabul edilir, tek seferlikse yok sayılır
+    cam.far = (cam.far || 0) + 1;
+    if (cam.far < 3) return cam.smooth;
+    cam.far = 0;
+    cam.smooth = q;
+    return q;
+  }
+  cam.far = 0;
+  const a = d > 0.03 ? 0.6 : 0.3;
+  cam.smooth = cam.smooth.map((p, i) => ({ x: p.x + (q[i].x - p.x) * a, y: p.y + (q[i].y - p.y) * a }));
+  return cam.smooth;
+}
 
 async function openCamera() {
   $("cam").classList.remove("hidden");
@@ -165,6 +238,7 @@ async function openCamera() {
 }
 
 function closeCamera() {
+  if (tab === "book") bookQueue.then(bookRefresh);
   cam.on = false;
   cam.stream?.getTracks().forEach((t) => t.stop());
   cam.stream = null;
@@ -206,9 +280,23 @@ async function loop() {
     cam.busy = true;
     const now = performance.now();
     let q = null;
-    try { q = await detect(smallFrame(video, video.videoWidth, video.videoHeight, 480)); } catch (e) {}
+    try {
+      const fr = smallFrame(video, video.videoWidth, video.videoHeight, 480);
+      const copy = new ImageData(new Uint8ClampedArray(fr.data), fr.width, fr.height);
+      const ms = motionSig(copy);
+      if (cam.prevMs) {
+        const mv = sigDiff(cam.prevMs, ms);
+        // art arda iki karede güçlü hareket: sayfa çevriliyor
+        cam.moving = mv > MOTION ? (cam.moving || 0) + 1 : 0;
+        if (!cam.armed && (cam.moving >= 2 || mv > MOTION * 1.8)) { cam.armed = true; }
+      }
+      cam.prevMs = ms;
+      q = await detect(fr);
+      cam.sig = q ? signature(copy, q) : null;
+    } catch (e) {}
     cam.busy = false;
     if (!cam.on) return;
+    if (q) q = smoothQuad(q);
     if (q) {
       cam.missing = 0;
       cam.hist.push({ t: now, q });
@@ -216,7 +304,11 @@ async function loop() {
       const recent = cam.hist.filter((h) => now - h.t <= STABLE_MS);
       const stable = recent.length >= 3 && now - recent[0].t >= STABLE_MS * 0.7 && recent.every((h) => qdist(h.q, q) < TOL);
       // aynı sayfa ikinci kez çekilmesin: sayfa değişmeli ya da kadraj boşalmalı
-      if (!cam.armed && cam.lastQuad && qdist(cam.lastQuad, q) > 0.12) cam.armed = true;
+      // yeni sayfa mı? İçeriği belirgin biçimde değişmiş olmalı (el titremesi ya da kısa kesinti yetmez)
+      if (cam.sig && cam.lastSig) {
+        const sd = sigDiff(cam.lastSig, cam.sig);
+        if (!cam.armed && (sd > SIG_NEW || (sd > SIG_NEW * 0.7 && cam.lastQuad && qdist(cam.lastQuad, q) > 0.12))) { cam.armed = true; }
+      }
       const span = recent.length ? (now - recent[0].t) / STABLE_MS : 0;
       const ready = cam.auto && cam.armed && now > cam.cool;
       drawQuad(q, stable);
@@ -230,30 +322,64 @@ async function loop() {
       }
     } else {
       cam.missing++;
+      // kısa kayıplarda çerçeveyi hemen silme
+      if (cam.missing <= 2 && cam.smooth) { drawQuad(cam.smooth, false); requestAnimationFrame(() => setTimeout(loop, 60)); return; }
+      cam.smooth = null;
       cam.hist = [];
       drawQuad(null);
       setProgress(0);
-      if (cam.missing > 4) cam.armed = true;
+      if (cam.missing > 30 && !cam.armed) { cam.armed = true; } // ≈3 sn sayfa yoksa yeniden hazır ol
       $("cam-hint").textContent = "Sayfayı kadraja al";
     }
   }
   requestAnimationFrame(() => setTimeout(loop, 60));
 }
 
+// Destekleyen telefonlarda kameranın tam çözünürlüklü fotoğrafı (video karesinden çok daha net)
+async function takeFullPhoto(vw, vh) {
+  try {
+    if (!("ImageCapture" in window) || !cam.stream) return null;
+    const ic = new ImageCapture(cam.stream.getVideoTracks()[0]);
+    const blob = await Promise.race([ic.takePhoto(), new Promise((r) => setTimeout(() => r(null), 3000))]);
+    if (!blob) return null;
+    const bmp = await createImageBitmap(blob, { imageOrientation: "from-image" });
+    // video karesinden belirgin biçimde büyük ve aynı oranda değilse kullanma
+    const sameRatio = Math.abs(bmp.width / bmp.height - vw / vh) < 0.03;
+    if (!sameRatio || bmp.width * bmp.height < vw * vh * 1.6) { bmp.close?.(); return null; }
+    return bmp;
+  } catch (e) { return null; }
+}
+
 async function capture(quad) {
-  if (!video.videoWidth) return;
-  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!video.videoWidth || cam.capturing) return;
+  // kilidi hemen al: tam çözünürlüklü fotoğraf beklenirken ikinci çekim olmasın
+  cam.capturing = true;
+  cam.armed = false;
+  cam.lastQuad = quad;
+  cam.lastSig = cam.sig;
+  cam.cool = performance.now() + 1500;
+  cam.hist = [];
+  try { await doCapture(quad); } finally { cam.capturing = false; cam.cool = performance.now() + 1200; }
+}
+
+async function doCapture(quad) {
+  let vw = video.videoWidth, vh = video.videoHeight;
   // çekim anındaki kareyi tam çözünürlükte al
   const c = document.createElement("canvas");
   c.width = vw; c.height = vh;
   c.getContext("2d").drawImage(video, 0, 0, vw, vh);
+  if (cam.hiRes !== false) {
+    const photo = await takeFullPhoto(vw, vh);
+    if (photo) {
+      vw = c.width = photo.width; vh = c.height = photo.height;
+      c.getContext("2d").drawImage(photo, 0, 0);
+      photo.close?.();
+    } else if (cam.hiRes === undefined) cam.hiRes = false; // desteklenmiyorsa bir daha deneme
+    if (photo) cam.hiRes = true;
+  }
   const f = $("flash");
   f.classList.remove("go"); void f.offsetWidth; f.classList.add("go");
   navigator.vibrate?.(30);
-  cam.armed = false;
-  cam.lastQuad = quad;
-  cam.cool = performance.now() + 1500;
-  cam.hist = [];
   setProgress(0);
   $("cam-hint").textContent = "Çekildi";
   if (!quad) {
@@ -264,12 +390,14 @@ async function capture(quad) {
   c.width = c.height = 0;
   cam.shots++;
   updateDone();
+  if (tab === "book") return bookAdd(blob, quad);
   const p = await addPage(blob, vw, vh, quad);
   if (p?.url) { $("last").style.backgroundImage = `url(${p.url})`; $("last").classList.add("has"); }
 }
 
 function updateDone() {
   $("cam-done").textContent = cam.shots ? `Bitti (${cam.shots})` : "Bitti";
+  if (tab === "book") $("cam-hint").dataset.count = cam.shots;
 }
 
 $("open-cam").addEventListener("click", openCamera);
@@ -457,3 +585,188 @@ $("clear").addEventListener("click", () => {
 });
 
 renderList();
+
+// =====================================================================
+// KİTAP
+// =====================================================================
+const bk = { mode: "text", pages: [], urls: [] };
+let bookQueue = Promise.resolve();
+const BOOK_SIDE = 2200;
+
+(async () => {
+  bk.mode = (await store.getMeta("mode").catch(() => null)) || "text";
+  $("bk-title").value = (await store.getMeta("title").catch(() => "")) || "";
+  markBookMode();
+  const n = (await store.listPages().catch(() => [])).length;
+  if (n) { // yarım kalmış kitap varsa doğrudan oraya aç
+    document.querySelector('.tab[data-tab="book"]').click();
+  }
+})();
+
+function markBookMode() {
+  $("bk-mode").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === bk.mode));
+  $("bk-mode-note").textContent = bk.mode === "text"
+    ? "Yazı: siyah-beyaz ve çok net, en küçük dosya. 100 sayfa yaklaşık 5–10 MB."
+    : "Resimli: gri tonlu, fotoğraflı sayfalar için. Dosya daha büyük olur.";
+}
+$("bk-mode").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  bk.mode = b.dataset.m;
+  markBookMode();
+  store.setMeta("mode", bk.mode).catch(() => {});
+});
+$("bk-title").addEventListener("change", () => store.setMeta("title", $("bk-title").value.trim()).catch(() => {}));
+
+function bookAdd(origBlob, quad) {
+  const mode = bk.mode;
+  bookQueue = bookQueue.then(async () => {
+    try {
+      const bmp = await bitmapOf(origBlob);
+      if (!quad) quad = await detect(smallFrame(bmp, bmp.width, bmp.height, 640)).catch(() => null);
+      const img = fullFrame(bmp, bmp.width, bmp.height);
+      bmp.close?.();
+      const out = await warp(img, quad || defaultQuad(), mode === "text" ? "bw" : "gray", BOOK_SIDE);
+      const c = canvasFromImageData(out);
+      const blob = mode === "text" ? await toBlob(c, "image/png") : await toBlob(c, "image/jpeg", 0.78);
+      const t = document.createElement("canvas");
+      t.width = 120; t.height = Math.round(120 * c.height / c.width);
+      t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
+      const thumb = await toBlob(t, "image/jpeg", 0.7);
+      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+      await store.putPage({ id, order: Date.now() + Math.random(), blob, thumb, w: c.width, h: c.height, mode, size: blob.size });
+      if (cam.on) { const u = URL.createObjectURL(thumb); $("last").style.backgroundImage = `url(${u})`; $("last").classList.add("has"); }
+      else bookRefresh();
+    } catch (e) {
+      console.error(e);
+      alert("Sayfa kaydedilemedi: " + (e.message || e));
+    }
+  });
+  return bookQueue;
+}
+
+async function bookRefresh() {
+  const list = await store.listPages().catch(() => []);
+  bk.pages = list;
+  bk.urls.forEach((u) => URL.revokeObjectURL(u));
+  bk.urls = [];
+  $("bk-doc").classList.toggle("hidden", !list.length);
+  $("bk-cam-label").textContent = list.length ? "Çekmeye devam et" : "Sayfaları çek";
+  $("bk-count").textContent = `${list.length} sayfa`;
+  const total = list.reduce((s, p) => s + (p.size || 0), 0);
+  $("bk-size").textContent = list.length ? `PDF yaklaşık ${fmtSize(total * (bk.mode === "text" ? 0.75 : 1.02))}` : "";
+  const ul = $("bk-pages");
+  ul.innerHTML = "";
+  list.forEach((p, i) => {
+    const li = document.createElement("li");
+    li.className = "page glass";
+    const img = document.createElement("img");
+    const u = URL.createObjectURL(p.thumb);
+    bk.urls.push(u);
+    img.src = u; img.alt = `Sayfa ${i + 1}`; img.loading = "lazy";
+    const n = document.createElement("span");
+    n.className = "num"; n.textContent = i + 1;
+    li.append(img, n);
+    li.addEventListener("click", () => bookView(p, i));
+    ul.append(li);
+  });
+}
+
+let viewing = null, viewUrl = null;
+async function bookView(p, i) {
+  viewing = p;
+  const full = await store.getPage(p.id);
+  if (viewUrl) URL.revokeObjectURL(viewUrl);
+  viewUrl = URL.createObjectURL(full.blob);
+  $("bk-view-img").src = viewUrl;
+  $("bk-view-img").alt = `Sayfa ${i + 1}`;
+  $("bk-view").showModal();
+}
+$("bk-view-close").addEventListener("click", () => $("bk-view").close());
+$("bk-view").addEventListener("click", (e) => { if (e.target === $("bk-view")) $("bk-view").close(); });
+$("bk-view-del").addEventListener("click", async () => {
+  if (!viewing || !confirm("Bu sayfa silinsin mi?")) return;
+  await store.delPage(viewing.id);
+  $("bk-view").close();
+  bookRefresh();
+});
+
+$("bk-cam").addEventListener("click", openCamera);
+$("bk-pick").addEventListener("change", async (e) => {
+  const fs = [...e.target.files]; e.target.value = "";
+  for (const f of fs) {
+    try {
+      const bmp = await bitmapOf(f);
+      const s = Math.min(1, 4000 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close?.();
+      await bookAdd(await toBlob(c, "image/jpeg", 0.92), null);
+    } catch (err) { alert(`“${f.name}” açılamadı.`); }
+  }
+  bookRefresh();
+});
+
+function bookProgress(on, f, text) {
+  $("bk-prog").classList.toggle("hidden", !on);
+  if (f != null) $("bk-bar").style.width = `${Math.round(f * 100)}%`;
+  if (text != null) $("bk-status").textContent = text;
+}
+
+async function buildBookPdf() {
+  const list = await store.listPages();
+  if (!list.length) throw new Error("Henüz sayfa yok");
+  const loaders = list.map((p) => async () => {
+    const full = await store.getPage(p.id);
+    if (full.mode === "text") {
+      const bmp = await createImageBitmap(full.blob);
+      const c = document.createElement("canvas");
+      c.width = bmp.width; c.height = bmp.height;
+      c.getContext("2d").drawImage(bmp, 0, 0);
+      bmp.close?.();
+      const bytes = await packBits(c);
+      c.width = c.height = 0;
+      return { kind: "bits", bytes, w: full.w, h: full.h };
+    }
+    return { kind: "jpeg", bytes: new Uint8Array(await full.blob.arrayBuffer()), w: full.w, h: full.h };
+  });
+  return makePdf(loaders, (f) => bookProgress(true, f, `PDF hazırlanıyor… ${Math.round(f * list.length)}/${list.length}`));
+}
+
+const bookName = () => (($("bk-title").value.trim() || "kitap").replace(/[\\/:*?"<>|]+/g, " ").slice(0, 80));
+
+$("bk-pdf").addEventListener("click", async () => {
+  const b = $("bk-pdf");
+  b.disabled = true;
+  try {
+    await bookQueue;
+    const pdf = await buildBookPdf();
+    bookProgress(true, 1, `Hazır: ${fmtSize(pdf.size)}`);
+    download(pdf, `${bookName()}.pdf`);
+  } catch (e) { bookProgress(true, 0, e.message || String(e)); }
+  finally { b.disabled = false; }
+});
+
+$("bk-epub").addEventListener("click", async () => {
+  const b = $("bk-epub");
+  b.disabled = true;
+  try {
+    await bookQueue;
+    const pdf = await buildBookPdf();
+    bookProgress(true, 1, "Kitap Çevirici açılıyor…");
+    await store.shareFile(`${bookName()}.pdf`, pdf);
+    location.href = "/pdf-epub/?kaynak=belge";
+  } catch (e) { bookProgress(true, 0, e.message || String(e)); b.disabled = false; }
+});
+
+$("bk-clear").addEventListener("click", async () => {
+  if (!confirm("Bu kitabın bütün sayfaları silinsin mi? Geri alınamaz.")) return;
+  await store.clearBook();
+  await store.setMeta("title", "");
+  $("bk-title").value = "";
+  bookProgress(false);
+  bookRefresh();
+});
+
+store.storageInfo();
