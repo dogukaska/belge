@@ -140,3 +140,4 @@ dialog#bk-view::backdrop { background: rgba(20,21,23,.5); }
 #bk-view .actions { justify-content: center; }
 .cam-count { position: absolute; top: calc(env(safe-area-inset-top) + 70px); left: 50%; transform: translateX(-50%); font-size: .9rem; color: #d8d6d1; }
 .actions button.toggle:not(.on) { color: var(--mute); border-style: dashed; }
+.pages .page.pending img { opacity: .55; }
