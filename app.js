@@ -1,6 +1,6 @@
-import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=8";
+import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=9";
 import { detectPage, warmUp } from "./lib/detect.js?v=2";
-import { processPage, warmUpFlatten } from "./lib/flatten.js?v=2";
+import { processPage, warmUpFlatten } from "./lib/flatten.js?v=3";
 import { makePdf, packBits } from "./lib/pdf.js?v=2";
 import * as store from "./lib/store.js?v=2";
 
@@ -12,6 +12,16 @@ const MAX_SIDE = 3200;
 
 cvReady().catch(() => {}); // işleyiciyi önceden ısıt
 warmUp(); // yapay zeka köşe bulucuyu önceden yükle
+
+// Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
+const APP_VERSION = "10";
+fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
+  v = v.trim();
+  if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
+    sessionStorage.setItem("yenilendi-" + v, "1");
+    fetch("./", { cache: "reload" }).catch(() => {}).finally(() => location.reload());
+  }
+}).catch(() => {});
 
 let tab = "doc";
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
@@ -75,6 +85,7 @@ async function render(p) {
   const img = fullFrame(bmp, bmp.width, bmp.height);
   bmp.close?.();
   const out = await processPage(img, p.quad, p.mode, p.flat !== false, MAX_SIDE);
+  p.flatInfo = out.flatInfo;
   const c = rotated(toA4(canvasFromImageData(out)), p.rot);
   p.out = await toBlob(c, "image/jpeg", p.mode === "bw" ? 0.85 : 0.9);
   p.w = c.width; p.h = c.height;
@@ -475,9 +486,13 @@ function markMode() {
   $("ed-mode").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === ed.mode));
 }
 
+function flatLabel(info) {
+  return info === "ok" ? "Düzleştirildi" : info === "kapalı" ? "Düzleştirme kapalı" : info ? "Düzleştirilemedi: " + info : "";
+}
 function showResult() {
   $("ed-svg").innerHTML = "";
   $("ed-img").src = ed.p.url;
+  $("ed-state").textContent = flatLabel(ed.p.flatInfo);
   $("ed-crop").querySelector("span").textContent = "Köşeleri ayarla";
 }
 
@@ -486,7 +501,7 @@ async function preview() {
   const p = ed.p;
   const tmp = { ...p, quad: ed.quad, mode: ed.mode, rot: ed.rot, flat: ed.flat, url: null };
   $("ed-busy").classList.remove("hidden");
-  try { await render(tmp); $("ed-img").src = tmp.url; ed.tmp?.url && URL.revokeObjectURL(ed.tmp.url); ed.tmp = tmp; }
+  try { await render(tmp); $("ed-img").src = tmp.url; $("ed-state").textContent = flatLabel(tmp.flatInfo); ed.tmp?.url && URL.revokeObjectURL(ed.tmp.url); ed.tmp = tmp; }
   catch (e) { alert(e.message); }
   $("ed-busy").classList.add("hidden");
 }
@@ -507,8 +522,11 @@ function toggleCrop() {
 }
 
 function imgRect() {
+  // görüntü kutusunu doldurur (object-fit: contain): gerçek resim alanını hesapla
   const img = $("ed-img"), st = $("ed-stage").getBoundingClientRect(), r = img.getBoundingClientRect();
-  return { x: r.left - st.left, y: r.top - st.top, w: r.width, h: r.height, sw: st.width, sh: st.height };
+  const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
+  const s = Math.min(r.width / nw, r.height / nh), w = nw * s, h = nh * s;
+  return { x: r.left - st.left + (r.width - w) / 2, y: r.top - st.top + (r.height - h) / 2, w, h, sw: st.width, sh: st.height };
 }
 
 function drawHandles() {
@@ -566,7 +584,7 @@ $("ed-ok").addEventListener("click", async () => {
     p.quad = ed.quad; p.mode = ed.mode; p.rot = ed.rot; p.flat = ed.flat; p.guessed = false;
     if (ed.tmp && ed.tmp.quad === ed.quad && ed.tmp.mode === ed.mode && ed.tmp.rot === ed.rot && ed.tmp.flat === ed.flat) {
       if (p.url) URL.revokeObjectURL(p.url);
-      p.out = ed.tmp.out; p.url = ed.tmp.url; p.w = ed.tmp.w; p.h = ed.tmp.h;
+      p.out = ed.tmp.out; p.url = ed.tmp.url; p.w = ed.tmp.w; p.h = ed.tmp.h; p.flatInfo = ed.tmp.flatInfo;
       ed.tmp = null;
     } else {
       $("ed-busy").classList.remove("hidden");
