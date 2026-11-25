@@ -1,6 +1,6 @@
-import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=9";
-import { detectPage, warmUp } from "./lib/detect.js?v=2";
-import { processPage, warmUpFlatten } from "./lib/flatten.js?v=4";
+import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=10";
+import { detectPage, warmUp } from "./lib/detect.js?v=3";
+import { processPage, warmUpFlatten } from "./lib/flatten.js?v=5";
 import { makePdf, packBits } from "./lib/pdf.js?v=2";
 import * as store from "./lib/store.js?v=2";
 
@@ -14,7 +14,7 @@ cvReady().catch(() => {}); // işleyiciyi önceden ısıt
 warmUp(); // yapay zeka köşe bulucuyu önceden yükle
 
 // Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
-const APP_VERSION = "11";
+const APP_VERSION = "12";
 fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
   v = v.trim();
   if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
@@ -216,6 +216,25 @@ function motionSig(img) {
   }
   return out;
 }
+// Netlik ölçüsü (Laplace varyansı): sayfanın orta bölgesinde. Bulanık karede düşük çıkar.
+function sharpness(img, q) {
+  const W = img.width, H = img.height, d = img.data;
+  const xs = q.map((p) => p.x * W), ys = q.map((p) => p.y * H);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const ix = (x1 - x0) * 0.15, iy = (y1 - y0) * 0.15;
+  x0 = Math.max(1, Math.round(x0 + ix)); x1 = Math.min(W - 2, Math.round(x1 - ix));
+  y0 = Math.max(1, Math.round(y0 + iy)); y1 = Math.min(H - 2, Math.round(y1 - iy));
+  const g = (x, y) => { const k = (y * W + x) * 4; return d[k] * 0.3 + d[k + 1] * 0.59 + d[k + 2] * 0.11; };
+  let n = 0, sum = 0, sum2 = 0;
+  for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) {
+    const l = 4 * g(x, y) - g(x - 1, y) - g(x + 1, y) - g(x, y - 1) - g(x, y + 1);
+    sum += l; sum2 += l * l; n++;
+  }
+  if (!n) return 0;
+  const m = sum / n;
+  return sum2 / n - m * m;
+}
+
 function sigDiff(a, b) {
   let s = 0;
   for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
@@ -328,6 +347,7 @@ async function loop() {
       cam.prevMs = ms;
       q = (await detectPage(fr))?.quad || null;
       cam.sig = q ? signature(copy, q) : null;
+      cam.sharp = q ? sharpness(copy, q) : 0;
     } catch (e) {}
     cam.busy = false;
     if (!cam.on) return;
@@ -348,11 +368,18 @@ async function loop() {
       const ready = cam.auto && cam.armed && now > cam.cool;
       drawQuad(q, stable);
       setProgress(ready && recent.every((h) => qdist(h.q, q) < TOL) ? span : 0);
-      if (ready && stable) {
+      // netlik geçmişi: son 1.5 sn içindeki en net kareye yakın olmalı
+      cam.sharpHist = (cam.sharpHist || []).filter((h) => now - h.t < 1500);
+      cam.sharpHist.push({ t: now, v: cam.sharp });
+      const bestSharp = Math.max(...cam.sharpHist.map((h) => h.v));
+      const stableFor = recent.length ? now - recent[0].t : 0;
+      const sharpOk = cam.sharp >= bestSharp * 0.85 || stableFor > STABLE_MS * 3;
+      if (ready && stable && !sharpOk) $("cam-hint").textContent = "Netleşmesini bekliyor…";
+      if (ready && stable && sharpOk) {
         // köşeleri son karelerin ortalaması yap (titreşmesin)
         const avg = q.map((_, i) => ({ x: recent.reduce((s, h) => s + h.q[i].x, 0) / recent.length, y: recent.reduce((s, h) => s + h.q[i].y, 0) / recent.length }));
         capture(avg);
-      } else {
+      } else if (!(ready && stable)) {
         $("cam-hint").textContent = !cam.armed ? "Sonraki sayfaya geç" : cam.auto ? "Sabit tut…" : "Hazır olunca çek";
       }
     } else {
