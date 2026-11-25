@@ -14,7 +14,7 @@ cvReady().catch(() => {}); // işleyiciyi önceden ısıt
 warmUp(); // yapay zeka köşe bulucuyu önceden yükle
 
 // Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
-const APP_VERSION = "12";
+const APP_VERSION = "13";
 fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
   v = v.trim();
   if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
@@ -176,7 +176,16 @@ for (const id of ["pick", "pick2"]) {
 // =====================================================================
 // KAMERA
 // =====================================================================
-const video = $("video");
+let video = $("video");
+// iPhone Safari: aynı video öğesine yeniden kamera bağlanınca görüntü küçük kalabiliyor. Her açılışta yeni öğe kullan.
+function freshVideo() {
+  const v = document.createElement("video");
+  v.id = "video";
+  v.playsInline = true; v.muted = true; v.autoplay = true;
+  v.setAttribute("playsinline", ""); v.setAttribute("muted", ""); v.setAttribute("autoplay", "");
+  video.replaceWith(v);
+  video = v;
+}
 const cam = { stream: null, on: false, busy: false, auto: true, hist: [], lastQuad: null, armed: true, cool: 0, shots: 0, missing: 0, sig: null, lastSig: null };
 
 // Sayfanın kendi içeriğinin parmak izi (sayfa içinden örneklenir): el titreyince değişmez, sayfa çevrilince değişir
@@ -283,7 +292,9 @@ async function openCamera() {
   }
   const track = cam.stream.getVideoTracks()[0];
   try { await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) {}
+  freshVideo();
   video.srcObject = cam.stream;
+  await new Promise((r) => { if (video.readyState >= 1) r(); else video.addEventListener("loadedmetadata", r, { once: true }); setTimeout(r, 3000); });
   await video.play().catch(() => {});
   cam.on = true;
   cam.hist = []; cam.armed = true; cam.lastQuad = null; cam.cool = 0;
@@ -296,7 +307,10 @@ function closeCamera() {
   cam.on = false;
   cam.stream?.getTracks().forEach((t) => t.stop());
   cam.stream = null;
+  try { video.pause(); } catch (e) {}
   video.srcObject = null;
+  video.removeAttribute("src");
+  try { video.load(); } catch (e) {}
   $("cam").classList.add("hidden");
   document.body.classList.remove("noscroll");
   drawQuad(null);
