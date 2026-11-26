@@ -12,7 +12,7 @@
 <script src="/theme.js?v=20261126c"></script>
 <link rel="stylesheet" href="style.css?v=19">
 <script src="vendor/jszip.min.js" defer></script>
-<script type="module" src="app.js?v=23"></script>
+<script type="module" src="app.js?v=24"></script>
 <link rel="stylesheet" href="/tool-links.css?v=20261126b">
 <link rel="stylesheet" href="/ui-compact.css?v=20261126d">
 </head>
@@ -28,7 +28,7 @@
 </header>
 
 <main>
-  <nav class="tool-links" aria-label="Diğer araçlar"><a href="./pdf/">PDF Düzenle</a><a href="./ocr/">Metni Kopyala</a></nav>
+  <nav class="tool-links" aria-label="Diğer araçlar"><a href="./pdf/">PDF Düzenle</a><a href="./ocr/">Metni Kopyala</a><a href="./pdf-araclari/?arac=ocr">OCR PDF</a></nav>
   <div id="tab-doc" role="tabpanel" aria-labelledby="tool-tab-doc">
   <section id="start" class="card glass start">
     <button class="primary big" id="open-cam" type="button">
@@ -136,7 +136,7 @@
   <div class="cam-bottom">
     <p class="cam-hint" id="cam-hint">Kamera açılıyor…</p>
     <div class="cam-row">
-      <div class="last" id="last"></div>
+      <button class="last" id="last" type="button" aria-label="Son çekilen sayfayı aç"></button>
       <button class="shutter" id="shutter" type="button" aria-label="Çek"><svg viewBox="0 0 80 80"><circle class="ring" cx="40" cy="40" r="36"/><circle class="prog" id="prog" cx="40" cy="40" r="36"/><circle class="dot" cx="40" cy="40" r="29"/></svg></button>
       <button class="pill" id="cam-done" type="button">Bitti</button>
     </div>
@@ -180,6 +180,6 @@
   </div>
 </div>
 
-<footer><p>Açık kaynak · <a href="https://github.com/dogukaska/belge">GitHub</a> · v20</p></footer>
+<footer><p>Açık kaynak · <a href="https://github.com/dogukaska/belge">GitHub</a> · v24</p></footer>
 </body>
 </html>

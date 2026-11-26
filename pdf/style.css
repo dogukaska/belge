@@ -1,0 +1,4 @@
+.tool .sheet { grid-template-columns: 27px auto minmax(0, 1fr); align-items: center; gap: 6px; }
+.page-grip { display: grid; place-items: center; align-self: stretch; min-height: 36px; color: var(--mute); font-size: 1.4rem; cursor: grab; touch-action: none; user-select: none; }
+.sheet.dragging { opacity: .6; }
+.sheet.drop-page { outline: 1px dashed var(--ink); outline-offset: 2px; border-radius: 7px; }

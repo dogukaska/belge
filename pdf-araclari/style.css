@@ -1,0 +1,7 @@
+#options > * { margin-top: 9px; }
+#preview { width: min(100%, 440px); margin-inline: auto; background: white; }
+#screen-signature { display: block; width: 100%; background: #faf9f6; border: 1px solid var(--line); border-radius: 8px; touch-action: none; }
+#options fieldset { margin-inline: 0; min-width: 0; border: 1px solid var(--line); border-radius: 8px; }
+#options fieldset label { margin-block: 5px; }
+#options fieldset input[type=checkbox], #options fieldset input[type=radio] { width: auto; min-height: 0; }
+#options .new-field { margin-block: 8px; }
