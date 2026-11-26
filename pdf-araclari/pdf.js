@@ -84,16 +84,21 @@ export function loadScript(url) {
   });
 }
 
-let fontReady;
-export async function unicodeFont(doc, subset = true) {
-  fontReady ??= Promise.all([
-    loadScript("../vendor/fontkit.min.js?v=1.1.1"),
-    fetch("../vendor/DejaVuSans-Latin.ttf").then(r => {
+let fontKitReady;
+const fontFiles = { sans: "DejaVuSans", serif: "DejaVuSerif", mono: "DejaVuSansMono" };
+const fonts = new Map();
+export async function unicodeFont(doc, subset = true, family = "sans") {
+  fontKitReady ??= loadScript("../vendor/fontkit.min.js?v=1.1.1").catch(error => {
+    fontKitReady = undefined;
+    throw error;
+  });
+  if (!fonts.has(family)) {
+    fonts.set(family, fetch("../vendor/" + fontFiles[family] + "-Latin.ttf").then(r => {
       if (!r.ok) throw new Error("Türkçe yazı tipi yüklenemedi.");
       return r.arrayBuffer();
-    }),
-  ]).catch(error => { fontReady = undefined; throw error; });
-  const [, bytes] = await fontReady;
+    }).catch(error => { fonts.delete(family); throw error; }));
+  }
+  const [, bytes] = await Promise.all([fontKitReady, fonts.get(family)]);
   doc.registerFontkit(window.fontkit);
   return doc.embedFont(bytes, { subset });
 }
