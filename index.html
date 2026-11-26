@@ -12,7 +12,7 @@
 <script src="/theme.js?v=20261126c"></script>
 <link rel="stylesheet" href="style.css?v=19">
 <script src="vendor/jszip.min.js" defer></script>
-<script type="module" src="app.js?v=20"></script>
+<script type="module" src="app.js?v=21"></script>
 <link rel="stylesheet" href="/tool-links.css?v=20261126b">
 <link rel="stylesheet" href="/ui-compact.css?v=20261126d">
 </head>
@@ -21,15 +21,15 @@
   <a class="home" href="/"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg> Uygulamalar</a>
   <h1>Belge Tarayıcı</h1>
   <p class="sub">Kamerayı sayfaya tut; kenarları kendisi bulur, düzeltir ve PDF yapar.</p>
-  <nav class="tabs glass" role="tablist">
-    <button class="tab active" data-tab="doc" role="tab"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg> Belge</button>
-    <button class="tab" data-tab="book" role="tab"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg> Kitap</button>
+  <nav class="tabs glass" role="tablist" aria-label="Tarama modu">
+    <button class="tab active" id="tool-tab-doc" data-tab="doc" role="tab" aria-controls="tab-doc" aria-selected="true" tabindex="0"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg> Belge</button>
+    <button class="tab" id="tool-tab-book" data-tab="book" role="tab" aria-controls="tab-book" aria-selected="false" tabindex="-1"><svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg> Kitap</button>
   </nav>
 </header>
 
 <main>
   <nav class="tool-links" aria-label="Diğer araçlar"><a href="./pdf/">PDF Düzenle</a><a href="./ocr/">Metni Kopyala</a></nav>
-  <div id="tab-doc">
+  <div id="tab-doc" role="tabpanel" aria-labelledby="tool-tab-doc">
   <section id="start" class="card glass start">
     <button class="primary big" id="open-cam" type="button">
       <svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
@@ -65,7 +65,7 @@
   </div>
 
   <!-- KİTAP -->
-  <div id="tab-book" class="hidden">
+  <div id="tab-book" role="tabpanel" aria-labelledby="tool-tab-book" class="hidden">
     <section class="card glass">
       <input type="text" id="bk-title" class="title-in" placeholder="Kitap adı (isteğe bağlı)" maxlength="80" autocomplete="off">
       <div class="row">

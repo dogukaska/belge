@@ -2,7 +2,7 @@ import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=14";
 import { detectPage, warmUp } from "./lib/detect.js?v=8";
 import { processPage, warmUpFlatten } from "./lib/flatten.js?v=9";
 import { makePdf, packBits } from "./lib/pdf.js?v=2";
-import * as store from "./lib/store.js?v=8";
+import * as store from "./lib/store.js?v=9";
 
 const $ = (id) => document.getElementById(id);
 const pages = [];          // { id, orig: Blob, ow, oh, quad, mode, rot, out: Blob, w, h, url }
@@ -14,7 +14,7 @@ cvReady().catch(() => {}); // işleyiciyi önceden ısıt
 warmUp(); // yapay zeka köşe bulucuyu önceden yükle
 
 // Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
-const APP_VERSION = "20";
+const APP_VERSION = "21";
 fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
   v = v.trim();
   if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
@@ -24,13 +24,33 @@ fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r
 }).catch(() => {});
 
 let tab = "doc";
-document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
+const tabs = [...document.querySelectorAll(".tab")];
+tabs.forEach((t) => t.addEventListener("click", () => {
   tab = t.dataset.tab;
-  document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
+  for (const button of tabs) {
+    const selected = button === t;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", selected);
+    button.tabIndex = selected ? 0 : -1;
+  }
   $("tab-doc").classList.toggle("hidden", tab !== "doc");
   $("tab-book").classList.toggle("hidden", tab !== "book");
   if (tab === "book") bookRefresh();
 }));
+tabs[0].parentElement.addEventListener("keydown", (event) => {
+  const index = tabs.indexOf(event.target);
+  if (index < 0) return;
+  let next;
+  if (event.key === "Home") next = tabs[0];
+  else if (event.key === "End") next = tabs.at(-1);
+  else if (event.key === "ArrowRight") next = tabs[(index + 1) % tabs.length];
+  else if (event.key === "ArrowLeft") next = tabs[(index + tabs.length - 1) % tabs.length];
+  else return;
+  event.preventDefault();
+  next.focus();
+  next.click();
+});
+
 
 // =====================================================================
 // Yardımcılar
@@ -1209,8 +1229,8 @@ $("bk-epub").addEventListener("click", async () => {
     const covers = { front: list[0].cover === "front", back: list.at(-1).cover === "back" };
     const pdf = await buildBookPdf(list);
     bookProgress(true, 1, "Kitap Çevirici açılıyor…");
-    await store.shareFile(`${bookName()}.pdf`, pdf, covers);
-    location.href = "/pdf-epub/?kaynak=belge";
+    const transfer = await store.shareFile(`${bookName()}.pdf`, pdf, covers);
+    location.href = "/pdf-epub/?kaynak=belge&aktarim=" + encodeURIComponent(transfer);
   } catch (e) { bookProgress(true, 0, e.message || String(e)); b.disabled = false; }
 });
 

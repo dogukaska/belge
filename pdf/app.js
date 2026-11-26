@@ -80,7 +80,9 @@ $("file").addEventListener("change",async () => {
         try {
           reader=await pdfjs.getDocument({data:bytes,isEvalSupported:false,cMapUrl:"/pdf-epub/vendor/pdfjs/cmaps/",cMapPacked:true,
             standardFontDataUrl:"/pdf-epub/vendor/pdfjs/standard_fonts/"}).promise;
-          for (const page of items) await renderThumb(reader,page).catch(()=>{});
+          let missing=0;
+          for (const page of items) await renderThumb(reader,page).catch(()=>{missing++;});
+          if (missing) errors.push(file.name+" için "+missing+" sayfa önizlenemedi.");
         } catch { errors.push(file.name+" önizlenemedi."); }
       } catch(e) { errors.push(file.name+" açılamadı ("+(e.message||"geçersiz dosya")+")."); }
       finally { await reader?.destroy().catch(()=>{}); }
