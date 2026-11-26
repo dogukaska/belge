@@ -10,9 +10,9 @@
 <meta name="theme-color" content="#efede8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1f2022" media="(prefers-color-scheme: dark)">
 <script src="/theme.js?v=20261126c"></script>
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 <script src="vendor/jszip.min.js" defer></script>
-<script type="module" src="app.js?v=17"></script>
+<script type="module" src="app.js?v=18"></script>
 <link rel="stylesheet" href="/tool-links.css?v=20261126b">
 <link rel="stylesheet" href="/ui-compact.css?v=20261126d">
 </head>
@@ -111,7 +111,9 @@
 
 <dialog id="bk-view" class="glass">
   <img id="bk-view-img" alt="">
+  <p class="hint hidden" id="bk-view-note">Sayfanın kenarları bulunamadı. Köşeleri fotoğraf üzerinde işaretleyebilirsin.</p>
   <div class="actions">
+    <button id="bk-view-crop" type="button" class="hidden">Köşeleri düzelt</button>
     <button id="bk-view-del" type="button">Bu sayfayı sil</button>
     <button class="primary" id="bk-view-close" type="button">Kapat</button>
   </div>
@@ -180,6 +182,6 @@
   </div>
 </div>
 
-<footer><p>Açık kaynak · <a href="https://github.com/dogukaska/belge">GitHub</a> · v17</p></footer>
+<footer><p>Açık kaynak · <a href="https://github.com/dogukaska/belge">GitHub</a> · v18</p></footer>
 </body>
 </html>
