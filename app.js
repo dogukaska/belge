@@ -2,7 +2,7 @@ import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=12";
 import { detectPage, warmUp } from "./lib/detect.js?v=6";
 import { processPage, warmUpFlatten } from "./lib/flatten.js?v=7";
 import { makePdf, packBits } from "./lib/pdf.js?v=2";
-import * as store from "./lib/store.js?v=3";
+import * as store from "./lib/store.js?v=4";
 
 const $ = (id) => document.getElementById(id);
 const pages = [];          // { id, orig: Blob, ow, oh, quad, mode, rot, out: Blob, w, h, url }
@@ -14,7 +14,7 @@ cvReady().catch(() => {}); // işleyiciyi önceden ısıt
 warmUp(); // yapay zeka köşe bulucuyu önceden yükle
 
 // Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
-const APP_VERSION = "15";
+const APP_VERSION = "16";
 fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
   v = v.trim();
   if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
@@ -762,11 +762,11 @@ function processPending() {
           t.width = 120; t.height = Math.round(120 * c.height / c.width);
           t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
           const thumb = await toBlob(t, "image/jpeg", 0.7);
-          await store.putPage({ id: rec.id, order: rec.order, blob, thumb, w: c.width, h: c.height, mode: rec.mode, size: blob.size });
+          await store.finishPendingPage({ id: rec.id, order: rec.order, blob, thumb, w: c.width, h: c.height, mode: rec.mode, size: blob.size });
         } catch (e) {
           console.error("sayfa işlenemedi", e);
           // ham hali bozuksa sonsuz döngüye girme
-          await store.putPage({ ...rec, pending: false, failed: true, blob: rec.raw, raw: null, w: 0, h: 0, size: rec.raw?.size || 0 });
+          await store.finishPendingPage({ ...rec, pending: false, failed: true, blob: rec.raw, raw: null, w: 0, h: 0, size: rec.raw?.size || 0 });
         }
         if (!$("tab-book").classList.contains("hidden")) bookRefresh();
       }
