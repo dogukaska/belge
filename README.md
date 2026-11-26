@@ -10,4 +10,4 @@ Sayfa düzleştirme (kıvrık/eğik sayfa, vFlat benzeri): [UVDoc](https://githu
 
 Kütüphaneler: [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) (MIT), [OpenCV.js](https://opencv.org) (Apache-2.0), [scanic / scanic-ml](https://github.com/marquaye/scanic) (MIT), [JSZip](https://github.com/Stuk/jszip) (MIT). PDF yazıcı kendi kodumuz (`lib/pdf.js`).
 
-Belge Tarayıcı’nın kamera, sayfa düzenleme ve renkli kapak aktarımı akışları OpenAI Codex desteğiyle geliştirildi ve test edildi.
+Belge Tarayıcı’nın otomatik sayfa algılama ve düzleştirme özelliklerine Claude, kamera, sayfa düzenleme ve renkli kapak aktarımının geliştirme ve test çalışmalarına OpenAI Codex katkıda bulundu.
