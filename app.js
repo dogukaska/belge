@@ -14,7 +14,7 @@ cvReady().catch(() => {}); // işleyiciyi önceden ısıt
 warmUp(); // yapay zeka köşe bulucuyu önceden yükle
 
 // Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
-const APP_VERSION = "21";
+const APP_VERSION = "22";
 fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
   v = v.trim();
   if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
@@ -234,7 +234,7 @@ function freshVideo() {
   video.replaceWith(v);
   video = v;
 }
-const cam = { stream: null, on: false, busy: false, auto: true, hist: [], lastQuad: null, armed: true, cool: 0, shots: 0, missing: 0, sig: null, lastSig: null };
+const cam = { generation: 0, stream: null, on: false, busy: false, auto: true, hist: [], lastQuad: null, armed: true, cool: 0, shots: 0, missing: 0, sig: null, lastSig: null };
 
 // Sayfanın kendi içeriğinin parmak izi (sayfa içinden örneklenir): el titreyince değişmez, sayfa çevrilince değişir
 function signature(img, q) {
@@ -360,6 +360,8 @@ let flatWarm = false;
 function warmFlat() { if (!flatWarm) { flatWarm = true; warmUpFlatten(); } }
 
 async function openCamera() {
+  if (!$("cam").classList.contains("hidden")) return;
+  const generation = ++cam.generation;
   warmFlat();
   $("cam").classList.remove("hidden");
   document.body.classList.add("noscroll");
@@ -367,27 +369,45 @@ async function openCamera() {
   cam.shots = 0;
   updateDone();
   try {
-    cam.stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: tab === "book" ? 2880 : 2160 } },
     });
+    if (generation !== cam.generation) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
+    cam.stream = stream;
   } catch (e) {
+    if (generation !== cam.generation) return;
     $("cam-hint").textContent = "Kameraya izin verilmedi. Tarayıcı ayarlarından kamera iznini aç ya da “Fotoğraflardan seç”i kullan.";
     return;
   }
   const track = cam.stream.getVideoTracks()[0];
   try { await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) {}
+  if (generation !== cam.generation) return;
   freshVideo();
   video.srcObject = cam.stream;
   await new Promise((r) => { if (video.readyState >= 1) r(); else video.addEventListener("loadedmetadata", r, { once: true }); setTimeout(r, 3000); });
+  if (generation !== cam.generation) return;
   await video.play().catch(() => {});
+  if (generation !== cam.generation) return;
+  if (track.readyState === "ended") { closeCamera(); return; }
+  track.addEventListener("ended", () => {
+    if (generation === cam.generation) closeCamera();
+  }, { once: true });
   cam.on = true;
   cam.hist = []; cam.armed = true; cam.lastQuad = null; cam.cool = 0;
+  cam.busy = cam.capturing = false;
+  cam.smooth = cam.prevMs = cam.lastSig = null;
+  cam.sharpHist = [];
   $("cam-hint").textContent = "Sayfayı kadraja al";
-  loop();
+  loop(generation);
 }
 
 function closeCamera() {
+  if ($("cam").classList.contains("hidden")) return;
+  cam.generation++;
   if (tab === "book") setTimeout(() => { bookRefresh(); processPending(); }, 50);
   cam.on = false;
   cam.stream?.getTracks().forEach((t) => t.stop());
@@ -427,8 +447,8 @@ function setProgress(f) {
   $("prog").style.strokeDashoffset = `${c * (1 - Math.max(0, Math.min(1, f)))}`;
 }
 
-async function loop() {
-  if (!cam.on) return;
+async function loop(generation) {
+  if (!cam.on || generation !== cam.generation) return;
   if (!cam.busy && video.videoWidth) {
     cam.busy = true;
     const now = performance.now();
@@ -446,12 +466,13 @@ async function loop() {
       }
       cam.prevMs = ms;
       q = (await detectPage(fr, null, null, { recover: book, book }))?.quad || null;
+      if (generation !== cam.generation) return;
       cam.sig = q ? signature(copy, q) : null;
       cam.sharp = q ? sharpness(copy, q) : 0;
       cam.focus = book && q ? bookFocus(copy, q) : 0;
     } catch (e) {}
+    if (!cam.on || generation !== cam.generation) return;
     cam.busy = false;
-    if (!cam.on) return;
     if (q) q = smoothQuad(q);
     if (q) {
       cam.missing = 0;
@@ -488,7 +509,7 @@ async function loop() {
     } else {
       cam.missing++;
       // kısa kayıplarda çerçeveyi hemen silme
-      if (cam.missing <= 2 && cam.smooth) { drawQuad(cam.smooth, false); requestAnimationFrame(() => setTimeout(loop, 60)); return; }
+      if (cam.missing <= 2 && cam.smooth) { drawQuad(cam.smooth, false); requestAnimationFrame(() => setTimeout(() => loop(generation), 60)); return; }
       cam.smooth = null;
       cam.hist = [];
       drawQuad(null);
@@ -497,7 +518,7 @@ async function loop() {
       $("cam-hint").textContent = "Sayfanın tamamını kadraja al";
     }
   }
-  requestAnimationFrame(() => setTimeout(loop, 60));
+  requestAnimationFrame(() => setTimeout(() => loop(generation), 60));
 }
 
 // Destekleyen telefonlarda kameranın tam çözünürlüklü fotoğrafı (video karesinden çok daha net)
@@ -516,7 +537,8 @@ async function takeFullPhoto(vw, vh) {
 }
 
 async function capture(quad) {
-  if (!video.videoWidth || cam.capturing || bk.frontChoice) return;
+  if (!cam.on || !video.videoWidth || cam.capturing || bk.frontChoice) return;
+  const generation = cam.generation;
   // kilidi hemen al: tam çözünürlüklü fotoğraf beklenirken ikinci çekim olmasın
   cam.capturing = true;
   cam.armed = false;
@@ -525,10 +547,15 @@ async function capture(quad) {
   cam.cool = performance.now() + 1500;
   cam.hist = [];
   const book = tab === "book";
-  try { await doCapture(quad, book); } finally { cam.capturing = false; cam.cool = performance.now() + 1200; }
+  try { await doCapture(quad, book, generation); } finally {
+    if (generation === cam.generation) {
+      cam.capturing = false;
+      cam.cool = performance.now() + 1200;
+    }
+  }
 }
 
-async function doCapture(quad, book) {
+async function doCapture(quad, book, generation) {
   let vw = video.videoWidth, vh = video.videoHeight;
   // çekim anındaki kareyi tam çözünürlükte al
   const c = document.createElement("canvas");
@@ -536,6 +563,7 @@ async function doCapture(quad, book) {
   c.getContext("2d").drawImage(video, 0, 0, vw, vh);
   if (cam.hiRes !== false) {
     const photo = await takeFullPhoto(vw, vh);
+    if (generation !== cam.generation) { photo?.close?.(); c.width = c.height = 0; return; }
     if (photo) {
       vw = c.width = photo.width; vh = c.height = photo.height;
       c.getContext("2d").drawImage(photo, 0, 0);
@@ -557,8 +585,9 @@ async function doCapture(quad, book) {
   }
   const blob = await toBlob(c, "image/jpeg", 0.92);
   c.width = c.height = 0;
+  if (generation !== cam.generation) return;
   if (book) {
-    if (await bookAdd(blob, quad)) {
+    if (await bookAdd(blob, quad) && generation === cam.generation) {
       cam.shots++;
       updateDone();
     }
@@ -567,7 +596,7 @@ async function doCapture(quad, book) {
   cam.shots++;
   updateDone();
   const p = await addPage(blob, vw, vh, quad);
-  if (p?.url) { $("last").style.backgroundImage = `url(${p.url})`; $("last").classList.add("has"); }
+  if (p?.url && generation === cam.generation) { $("last").style.backgroundImage = `url(${p.url})`; $("last").classList.add("has"); }
 }
 
 function updateDone() {
@@ -589,6 +618,10 @@ $("auto").addEventListener("click", () => {
   $("auto").textContent = cam.auto ? "Otomatik çekim" : "Elle çekim";
 });
 $("last").addEventListener("click", closeCamera);
+window.addEventListener("pagehide", closeCamera);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && cam.on) closeCamera();
+});
 window.addEventListener("resize", () => { if (!cam.on) drawQuad(null); });
 
 // =====================================================================
