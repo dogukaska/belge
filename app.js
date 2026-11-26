@@ -14,7 +14,7 @@ cvReady().catch(() => {}); // işleyiciyi önceden ısıt
 warmUp(); // yapay zeka köşe bulucuyu önceden yükle
 
 // Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
-const APP_VERSION = "23";
+const APP_VERSION = "24";
 fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
   v = v.trim();
   if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
@@ -367,6 +367,8 @@ async function openCamera() {
   document.body.classList.add("noscroll");
   $("cam-hint").textContent = "Kamera açılıyor…";
   cam.shots = 0;
+  cam.lastBookId = null;
+  clearCameraThumb();
   updateDone();
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -419,6 +421,7 @@ function closeCamera() {
   $("cam").classList.add("hidden");
   document.body.classList.remove("noscroll");
   drawQuad(null);
+  clearCameraThumb();
 }
 
 // görüntünün ekrandaki yerleşimi (object-fit: contain)
@@ -593,10 +596,25 @@ async function doCapture(quad, book, generation) {
     }
     return;
   }
-  cam.shots++;
-  updateDone();
   const p = await addPage(blob, vw, vh, quad);
-  if (p?.url && generation === cam.generation) { $("last").style.backgroundImage = `url(${p.url})`; $("last").classList.add("has"); }
+  if (p?.url && generation === cam.generation) {
+    cam.shots++;
+    updateDone();
+    setCameraThumb(p.url);
+  }
+}
+
+function clearCameraThumb() {
+  if (cam.thumbUrl) URL.revokeObjectURL(cam.thumbUrl);
+  cam.thumbUrl = null;
+  $("last").style.backgroundImage = "";
+  $("last").classList.remove("has");
+}
+function setCameraThumb(url, owned = false) {
+  clearCameraThumb();
+  if (owned) cam.thumbUrl = url;
+  $("last").style.backgroundImage = `url("${url}")`;
+  $("last").classList.add("has");
 }
 
 function updateDone() {
@@ -617,7 +635,18 @@ $("auto").addEventListener("click", () => {
   $("auto").classList.toggle("on", cam.auto);
   $("auto").textContent = cam.auto ? "Otomatik çekim" : "Elle çekim";
 });
-$("last").addEventListener("click", closeCamera);
+$("last").addEventListener("click", async () => {
+  const bookId = cam.lastBookId;
+  closeCamera();
+  if (tab === "doc") {
+    const latest = pages.at(-1);
+    if (latest) openEdit(latest);
+  } else if (bookId) {
+    const list = await store.listPages();
+    const index = list.findIndex(page => page.id === bookId);
+    if (index >= 0) await bookView(list[index], index);
+  }
+});
 window.addEventListener("pagehide", closeCamera);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && cam.on) closeCamera();
@@ -921,6 +950,7 @@ function chooseFrontPage(id) {
 // Kitap: kamera açıkken sayfalar yalnızca ham kaydedilir (hızlı, kaybolmaz); ağır işleme kamera kapanınca yapılır.
 async function bookAdd(origBlob, quad) {
   const mode = bk.mode;
+  const generation = cam.generation;
   try {
     if (!origBlob?.size) throw new Error("Fotoğraf oluşturulamadı. Yeniden çekmeyi dene.");
     const tb = await createImageBitmap(origBlob, { resizeWidth: 120, resizeQuality: "medium" }).catch(() => null);
@@ -935,7 +965,10 @@ async function bookAdd(origBlob, quad) {
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     const first = await store.putPage({ id, order: Date.now() + Math.random(), raw: origBlob, quad: quad || null, thumb, mode, pending: true, size: 0 });
     if (first) await chooseFrontPage(id);
-    if (cam.on && thumb) { const u = URL.createObjectURL(thumb); $("last").style.backgroundImage = `url(${u})`; $("last").classList.add("has"); }
+    if (cam.on && thumb && cam.generation === generation) {
+      cam.lastBookId = id;
+      setCameraThumb(URL.createObjectURL(thumb), true);
+    }
   } catch (e) {
     console.error(e);
     alert("Sayfa kaydedilemedi: " + (e.message || e));

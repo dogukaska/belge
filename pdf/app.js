@@ -3,6 +3,8 @@ pdfjs.GlobalWorkerOptions.workerSrc = "/pdf-epub/vendor/pdfjs/pdf.worker.min.mjs
 const $ = id => document.getElementById(id);
 const pages = [];
 let busy = false, serial = 0;
+const mergeMode = new URLSearchParams(location.search).get("arac") === "birlestir";
+if (mergeMode) { document.title = "PDF Birleştir · Dijital Çakı"; document.querySelector("h1").textContent = "PDF Birleştir"; }
 const status = text => { $("status").textContent = text; };
 function update() {
   $("download").disabled = busy || !pages.some(p => p.selected);
@@ -27,6 +29,9 @@ function draw() {
     selected.setAttribute("aria-label",page.name+" sayfa "+(page.index+1)+" seç");
     selected.addEventListener("change",() => { page.selected=selected.checked; update(); });
     label.append(selected," İndirmeye ekle");
+    const grip=document.createElement("span");
+    grip.className="page-grip"; grip.textContent="⠿"; grip.title="Sürükleyerek sırala"; grip.setAttribute("aria-hidden","true");
+    grip.addEventListener("pointerdown", startDrag);
     const actions=document.createElement("div");
     actions.className="row";
     const move=to => {
@@ -42,10 +47,52 @@ function draw() {
     actions.append(button("Yukarı",()=>move(i-1),i===0),
       button("Aşağı",()=>move(i+1),i===pages.length-1), button("Döndür",rotate),
       button("Çıkar",()=>{pages.splice(i,1);draw();$("pages").querySelector("input")?.focus();status("Sayfa listeden çıkarıldı.");}));
-    details.append(title,label,actions); row.append(thumb,details); $("pages").append(row);
+    details.append(title,label,actions); row.append(grip,thumb,details); $("pages").append(row);
   });
   update();
 }
+let dragging;
+function targetRow(event) {
+  return document.elementFromPoint(event.clientX, event.clientY)?.closest("#pages .sheet");
+}
+function startDrag(event) {
+  if (busy || dragging || event.button !== 0) return;
+  const grip = event.currentTarget;
+  dragging = { row: grip.closest(".sheet"), pointer: event.pointerId };
+  grip.setPointerCapture(event.pointerId);
+  grip.addEventListener("pointermove", trackDrag);
+  grip.addEventListener("pointerup", finishDrag);
+  grip.addEventListener("lostpointercapture", cancelDrag);
+  dragging.row.classList.add("dragging");
+}
+function trackDrag(event) {
+  if (dragging?.pointer !== event.pointerId) return;
+  const target = targetRow(event);
+  if (dragging.target === target) return;
+  dragging.target?.classList.remove("drop-page");
+  dragging.target = target;
+  if (target !== dragging.row) target?.classList.add("drop-page");
+}
+function cancelDrag(event) {
+  const grip = event.currentTarget;
+  grip.removeEventListener("pointermove", trackDrag);
+  grip.removeEventListener("pointerup", finishDrag);
+  grip.removeEventListener("lostpointercapture", cancelDrag);
+  dragging?.row.classList.remove("dragging");
+  dragging?.target?.classList.remove("drop-page");
+  dragging = undefined;
+}
+function finishDrag(event) {
+  const from = pages.findIndex(page => "row-" + page.id === dragging.row.id);
+  const to = pages.findIndex(page => "row-" + page.id === targetRow(event)?.id);
+  cancelDrag(event);
+  if (from < 0 || to < 0 || from === to) return;
+  const [moved] = pages.splice(from, 1);
+  pages.splice(to, 0, moved);
+  draw();
+  status("Sayfa " + (to + 1) + ". sıraya taşındı.");
+}
+
 async function renderThumb(reader,page) {
   const pdfPage=await reader.getPage(page.index+1);
   try {
@@ -113,7 +160,7 @@ $("download").addEventListener("click",async ()=>{
       result.addPage(page);
     }
     const url=URL.createObjectURL(new Blob([await result.save()],{type:"application/pdf"}));
-    const link=document.createElement("a");link.href=url;link.download="duzenlenmis.pdf";link.click();
+    const link=document.createElement("a");link.href=url;link.download=mergeMode ? "birlestirilmis.pdf" : "duzenlenmis.pdf";link.click();
     setTimeout(()=>URL.revokeObjectURL(url),4000);
     status(selected.length+" sayfalık PDF hazır.");
   } catch(e) {status(e.message||"PDF oluşturulamadı.");}

@@ -11,3 +11,7 @@ Sayfa düzleştirme (kıvrık/eğik sayfa, vFlat benzeri): [UVDoc](https://githu
 Kütüphaneler: [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) (MIT), [OpenCV.js](https://opencv.org) (Apache-2.0), [scanic / scanic-ml](https://github.com/marquaye/scanic) (MIT), [JSZip](https://github.com/Stuk/jszip) (MIT). PDF yazıcı kendi kodumuz (`lib/pdf.js`).
 
 Belge Tarayıcı’nın otomatik sayfa algılama ve düzleştirme özelliklerine Claude, kamera, sayfa düzenleme ve renkli kapak aktarımının geliştirme ve test çalışmalarına OpenAI Codex katkıda bulundu.
+
+Ek PDF araçları [PDF-Lib](https://github.com/Hopding/pdf-lib), [Fontkit](https://github.com/Hopding/fontkit), [PDF.js](https://github.com/mozilla/pdf.js), [Tesseract.js](https://github.com/naptha/tesseract.js) ve Türkçe karakterleri içeren bir [DejaVu Sans](https://dejavu-fonts.github.io/) altkümesi kullanır.
+
+PDF araçlarının geliştirilmesi, tarama akışının incelenmesi ve dosya testleri OpenAI Codex desteğiyle yapıldı.
