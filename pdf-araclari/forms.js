@@ -1,5 +1,5 @@
 import { download, element } from "/gunluk/common.js?v=1";
-import { unicodeFont } from "./pdf.js";
+import { unicodeFont } from "./pdf.js?v=2";
 
 const $ = id => document.getElementById(id);
 const lib = () => window.PDFLib;

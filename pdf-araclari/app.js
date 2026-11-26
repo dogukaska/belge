@@ -1,6 +1,6 @@
-import { cropEdges, operations } from "./operations.js";
-import { addFormField, bindExisting, writeForm } from "./forms.js";
-import { openReader, renderPage } from "./pdf.js";
+import { cropEdges, operations } from "./operations.js?v=2";
+import { addFormField, bindExisting, writeForm } from "./forms.js?v=2";
+import { openReader, renderPage } from "./pdf.js?v=2";
 
 const $ = id => document.getElementById(id);
 const titles = {
@@ -47,7 +47,7 @@ const options = {
     number("top", "Üst (%)", 0, 0, 90), number("bottom", "Alt (%)", 0, 0, 90)) + range +
     '<p class="muted">Gölgeli kenarlar görünümden kırpılır. Kırpma, gizli içeriği kalıcı olarak silmez.</p>',
   filigran: select("mark-type", "Filigran", [["text", "Metin"], ["image", "Görsel"]]) +
-    '<div id="text-options"><label>Metin<input id="mark-text" maxlength="120" value="ÖRNEK"></label>' + size() + '</div>' +
+    '<div id="text-options"><label>Metin<input id="mark-text" maxlength="120" value="ÖRNEK"></label>' + fields(size(), select("mark-font", "Yazı tipi", [["sans", "Düz"], ["serif", "Tırnaklı"], ["mono", "Eş aralıklı"]])) + '</div>' +
     '<div id="image-options" hidden><label>JPG veya PNG<input id="mark-file" type="file" accept="image/jpeg,image/png"></label>' + imageSize() + '</div>' +
     fields(pos("middle-center"), number("opacity", "Şeffaflık (%)", 30, 1, 100)) + range,
   imza: '<label>İmzanı çiz</label><canvas id="screen-signature" width="700" height="230" aria-label="İmza çizim alanı"></canvas>' +

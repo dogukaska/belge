@@ -1,4 +1,4 @@
-import { blobFromCanvas, geometry, hasReadableText, loadScript, openReader, position, readImage, renderPage, selectedPages, unicodeFont } from "./pdf.js";
+import { blobFromCanvas, geometry, hasReadableText, loadScript, openReader, position, readImage, renderPage, selectedPages, unicodeFont } from "./pdf.js?v=2";
 import { download } from "/gunluk/common.js?v=1";
 
 const $ = id => document.getElementById(id);
@@ -78,7 +78,7 @@ async function watermarked({ doc, base, job }) {
   } else {
     const label = text("mark-text");
     if (!label) throw new Error("Filigran metnini gir.");
-    const font = await unicodeFont(doc);
+    const font = await unicodeFont(doc, true, $("mark-font").value);
     if ([...label].some(char => !font.getCharacterSet().includes(char.codePointAt(0)))) throw new Error("Filigranda yazı tipinin desteklemediği karakter var.");
     for (const index of pagesIn(doc)) drawMark(doc.getPage(index), { label, font, size: number("size"), location, opacity });
   }
