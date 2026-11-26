@@ -1,8 +1,8 @@
-import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=13";
-import { detectPage, warmUp } from "./lib/detect.js?v=7";
-import { processPage, warmUpFlatten } from "./lib/flatten.js?v=8";
+import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=14";
+import { detectPage, warmUp } from "./lib/detect.js?v=8";
+import { processPage, warmUpFlatten } from "./lib/flatten.js?v=9";
 import { makePdf, packBits } from "./lib/pdf.js?v=2";
-import * as store from "./lib/store.js?v=7";
+import * as store from "./lib/store.js?v=8";
 
 const $ = (id) => document.getElementById(id);
 const pages = [];          // { id, orig: Blob, ow, oh, quad, mode, rot, out: Blob, w, h, url }
@@ -14,7 +14,7 @@ cvReady().catch(() => {}); // işleyiciyi önceden ısıt
 warmUp(); // yapay zeka köşe bulucuyu önceden yükle
 
 // Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
-const APP_VERSION = "19";
+const APP_VERSION = "20";
 fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
   v = v.trim();
   if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
@@ -79,7 +79,32 @@ function toA4(c, tolerance = 0.1) {
 }
 
 async function bitmapOf(blob) {
-  return createImageBitmap(blob, { imageOrientation: "from-image" });
+  try {
+    return await createImageBitmap(blob, { imageOrientation: "from-image" });
+  } catch {
+    const { image, url } = await openPhoto(blob);
+    URL.revokeObjectURL(url);
+    return image;
+  }
+}
+
+async function openPhoto(blob) {
+  let url;
+  try {
+    if (!blob?.size) throw new Error();
+    const local = new Blob([await blob.arrayBuffer()], { type: blob.type || "image/jpeg" });
+    url = URL.createObjectURL(local);
+    const image = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
+    });
+    return { blob: local, image, url };
+  } catch {
+    if (url) URL.revokeObjectURL(url);
+    throw new Error("Fotoğraf açılamadı.");
+  }
 }
 
 /** Sayfanın sonucunu (düzeltilmiş görüntü) üretir */
@@ -247,6 +272,43 @@ function sharpness(img, q) {
   return sum2 / n - m * m;
 }
 
+// Netlik en az bir yazılı bölgeye dayanmalı; bulanık bir kare kendi başına referans olamaz.
+function bookFocus(img, quad) {
+  const { width, height, data } = img;
+  const q = quad || defaultQuad(0.08);
+  const light = (x, y) => {
+    const i = (y * width + x) * 4;
+    return data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11;
+  };
+  let regions = 0, min = Infinity;
+  for (let band = 0; band < 3; band++) {
+    let edges = 0, variation = 0, curvature = 0;
+    for (let row = 0; row < 36; row++) {
+      const v = 0.08 + (band * 36 + row + 0.5) / 108 * 0.84;
+      const lx = q[0].x + (q[3].x - q[0].x) * v, rx = q[1].x + (q[2].x - q[1].x) * v;
+      const ly = q[0].y + (q[3].y - q[0].y) * v, ry = q[1].y + (q[2].y - q[1].y) * v;
+      for (let col = 0; col < 110; col++) {
+        const u = 0.08 + (col + 0.5) / 110 * 0.84;
+        const x = Math.min(width - 2, Math.max(1, Math.round((lx + (rx - lx) * u) * width)));
+        const y = Math.min(height - 2, Math.max(1, Math.round((ly + (ry - ly) * u) * height)));
+        const c = light(x, y);
+        const l = light(x - 1, y) - c, r = light(x + 1, y) - c;
+        const t = light(x, y - 1) - c, b = light(x, y + 1) - c;
+        const energy = l*l + r*r + t*t + b*b;
+        if (energy < 9) continue;
+        edges++;
+        variation += energy;
+        curvature += (l + r) ** 2 + (t + b) ** 2;
+      }
+    }
+    if (edges >= 16) {
+      regions++;
+      min = Math.min(min, curvature / variation);
+    }
+  }
+  return regions ? min : 0;
+}
+
 function sigDiff(a, b) {
   let s = 0;
   for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
@@ -287,7 +349,7 @@ async function openCamera() {
   try {
     cam.stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
-      video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: tab === "book" ? 2880 : 2160 } },
     });
   } catch (e) {
     $("cam-hint").textContent = "Kameraya izin verilmedi. Tarayıcı ayarlarından kamera iznini aç ya da “Fotoğraflardan seç”i kullan.";
@@ -352,7 +414,8 @@ async function loop() {
     const now = performance.now();
     let q = null;
     try {
-      const fr = smallFrame(video, video.videoWidth, video.videoHeight, 480);
+      const book = tab === "book";
+      const fr = smallFrame(video, video.videoWidth, video.videoHeight, book ? 600 : 480);
       const copy = new ImageData(new Uint8ClampedArray(fr.data), fr.width, fr.height);
       const ms = motionSig(copy);
       if (cam.prevMs) {
@@ -362,9 +425,10 @@ async function loop() {
         if (!cam.armed && (cam.moving >= 2 || mv > MOTION * 1.8)) { cam.armed = true; }
       }
       cam.prevMs = ms;
-      q = (await detectPage(fr, null, null, { recover: tab === "book" }))?.quad || null;
+      q = (await detectPage(fr, null, null, { recover: book, book }))?.quad || null;
       cam.sig = q ? signature(copy, q) : null;
       cam.sharp = q ? sharpness(copy, q) : 0;
+      cam.focus = book && q ? bookFocus(copy, q) : 0;
     } catch (e) {}
     cam.busy = false;
     if (!cam.on) return;
@@ -390,7 +454,9 @@ async function loop() {
       cam.sharpHist.push({ t: now, v: cam.sharp });
       const bestSharp = Math.max(...cam.sharpHist.map((h) => h.v));
       const stableFor = recent.length ? now - recent[0].t : 0;
-      const sharpOk = cam.sharp >= bestSharp * 0.85 || stableFor > STABLE_MS * 3;
+      const sharpOk = tab === "book"
+        ? cam.focus >= 0.26 && cam.sharp >= bestSharp * 0.85
+        : cam.sharp >= bestSharp * 0.85 || stableFor > STABLE_MS * 3;
       if (ready && stable && !sharpOk) $("cam-hint").textContent = "Netleşmesini bekliyor…";
       if (ready && stable && sharpOk) {
         // köşeleri son karelerin ortalaması yap (titreşmesin)
@@ -538,6 +604,7 @@ function closeEdit() {
   document.body.classList.remove("noscroll");
   if (ed.origUrl) { URL.revokeObjectURL(ed.origUrl); ed.origUrl = null; }
   $("ed-img").onload = null;
+  $("ed-img").onerror = null;
   $("ed-busy").classList.add("hidden");
   ed.previewRequest++;
   ed.drag = -1;
@@ -590,12 +657,18 @@ function toggleCrop() {
   ed.cropping = !ed.cropping;
   if (ed.cropping) {
     if (!ed.origUrl) ed.origUrl = URL.createObjectURL(ed.p.orig);
-    $("ed-img").src = ed.origUrl;
-    $("ed-img").onload = drawHandles;
-    if (ed.p.book) $("ed-state").textContent = "Dört köşeyi sayfanın kenarlarına taşı";
+    const img = $("ed-img");
+    img.onload = drawHandles;
+    img.onerror = () => { $("ed-state").textContent = "Fotoğraf görüntülenemedi. Önizlemeye dönüp yeniden dene."; };
+    img.src = ed.origUrl;
+    if (ed.p.book) $("ed-state").textContent = ed.p.savedSource
+      ? "Orijinal açılamadı. Köşeler kayıtlı görüntüde düzenleniyor."
+      : "Dört köşeyi sayfanın kenarlarına taşı";
+    if (img.complete && img.naturalWidth) drawHandles();
     $("ed-crop").querySelector("span").textContent = "Köşeleri uygula";
   } else {
     $("ed-img").onload = null;
+    $("ed-img").onerror = null;
     $("ed-svg").innerHTML = "";
     $("ed-crop").querySelector("span").textContent = "Köşeleri ayarla";
     preview();
@@ -611,7 +684,7 @@ function imgRect() {
 }
 
 function drawHandles() {
-  if (!ed.cropping) return;
+  if (!ed.cropping || !$("ed-img").naturalWidth) return;
   const r = imgRect();
   const svg = $("ed-svg");
   svg.setAttribute("viewBox", `0 0 ${r.sw} ${r.sh}`);
@@ -796,6 +869,7 @@ function chooseFrontPage(id) {
 async function bookAdd(origBlob, quad) {
   const mode = bk.mode;
   try {
+    if (!origBlob?.size) throw new Error("Fotoğraf oluşturulamadı. Yeniden çekmeyi dene.");
     const tb = await createImageBitmap(origBlob, { resizeWidth: 120, resizeQuality: "medium" }).catch(() => null);
     let thumb = null;
     if (tb) {
@@ -838,14 +912,16 @@ function processPending() {
         const rec = await store.getPage(next.id);
         if (!rec || !rec.pending || rec.chooseFront) continue;
         try {
-          const corners = rec.reclassify && !rec.needsCrop ? rec.quad : null;
+          const corners = rec.reclassify && rec.keepOriginal && !rec.needsCrop ? rec.quad : null;
           const result = await renderBookPhoto(rec, corners, !rec.cover, rec.rot || 0);
-          const forBack = !rec.cover && !result.needsCrop && !rec.keepOriginal;
+          const forBack = !rec.cover && !result.needsCrop && !result.needsFocus && !rec.keepOriginal;
           await store.finishPendingPage({ ...rec, ...result, pending: false, forBack, reclassify: false });
         } catch (e) {
           console.error("sayfa işlenemedi", e);
           // ham hali bozuksa sonsuz döngüye girme
-          await store.finishPendingPage({ ...rec, pending: false, failed: true, needsCrop: true, blob: rec.raw, w: 0, h: 0, size: rec.raw?.size || 0 });
+          const cover = rec.reclassify ? (rec.cover === "back" ? "" : "back") : rec.cover;
+          await store.finishPendingPage({ ...rec, cover, pending: false, reclassify: false,
+            failed: !rec.blob, needsCrop: true, size: rec.blob?.size || rec.raw?.size || 0 }, true);
         }
         if (!$("tab-book").classList.contains("hidden")) bookRefresh();
       }
@@ -860,18 +936,19 @@ function processPending() {
 }
 
 async function renderBookPhoto(rec, corners, flat = !rec.cover, rot = 0) {
-  const bmp = await bitmapOf(rec.raw);
-  let quad, img;
+  const bmp = rec.decoded || await bitmapOf(rec.raw);
+  let quad, img, focus;
   try {
-    const found = corners ? null : await detectPage(bmp, bmp.width, bmp.height, { max: 1280, minScore: 0.4, recover: true }).catch(() => null);
-    quad = corners || found?.quad || rec.quad;
-    img = fullFrame(bmp, bmp.width, bmp.height);
+    const found = corners ? null : await detectPage(bmp, bmp.width, bmp.height, { max: 1280, minScore: 0.4, recover: true, book: true }).catch(() => null);
+    quad = corners || found?.quad;
+    focus = !rec.cover && bookFocus(smallFrame(bmp, bmp.width, bmp.height, 600), quad) < 0.26;
+    img = quad ? fullFrame(bmp, bmp.width, bmp.height) : smallFrame(bmp, bmp.width, bmp.height, BOOK_SIDE);
   } finally {
     bmp.close?.();
   }
   const crop = quad || defaultQuad(0);
-  const mode = rec.cover ? "orig" : rec.mode === "text" ? "bw" : "gray";
-  const out = await processPage(img, crop, mode, flat, BOOK_SIDE);
+  const mode = rec.cover || !quad ? "orig" : focus ? "book-gray" : rec.mode === "text" ? "bw" : "gray";
+  const out = quad ? await processPage(img, crop, mode, flat, BOOK_SIDE, true) : img;
   const corrected = canvasFromImageData(out);
   const c = rotated(quad ? toA4(corrected, 0.025) : corrected, rot);
   const blob = mode === "bw" ? await toBlob(c, "image/png") : await toBlob(c, "image/jpeg", rec.cover ? 0.94 : 0.78);
@@ -881,7 +958,8 @@ async function renderBookPhoto(rec, corners, flat = !rec.cover, rot = 0) {
   t.height = Math.round(120 * c.height / c.width);
   t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
   const thumb = await toBlob(t, "image/jpeg", 0.7);
-  return { blob, thumb, w: c.width, h: c.height, quad: crop, flat, flatInfo: out.flatInfo, rot, needsCrop: !quad, failed: false, size: blob.size };
+  return { blob, thumb, w: c.width, h: c.height, quad: crop, flat, flatInfo: out.flatInfo, rot,
+    needsCrop: !quad, needsFocus: focus, bilevel: mode === "bw", failed: false, size: blob.size };
 }
 
 function renderBookEdit(p) {
@@ -976,19 +1054,60 @@ async function bookView(p, i) {
   if (!full || $("bk-view").open) return;
   viewing = full;
   if (viewUrl) URL.revokeObjectURL(viewUrl);
-  viewUrl = URL.createObjectURL(full.blob || full.raw);
-  $("bk-view-img").src = viewUrl;
-  $("bk-view-img").alt = COVER_LABELS[p.cover] || `Sayfa ${i + 1}`;
+  const img = $("bk-view-img");
+  const source = full.blob || full.raw;
+  viewUrl = source ? URL.createObjectURL(source) : null;
+  img.alt = COVER_LABELS[p.cover] || `Sayfa ${i + 1}`;
   $("bk-view-crop").classList.toggle("hidden", !(full.raw || full.cover) || full.pending);
-  $("bk-view-note").classList.toggle("hidden", !full.needsCrop);
+  const note = $("bk-view-note");
+  note.textContent = full.needsCrop
+    ? "Dört kenar doğrulanamadı. Kadrajı kontrol et veya köşeleri fotoğraf üzerinde işaretle."
+    : "Yazı net görünmüyorsa sayfayı yeniden çekebilirsin.";
+  note.classList.toggle("hidden", !full.needsCrop && !full.needsFocus);
+  img.onerror = () => {
+    if (viewing !== full) return;
+    img.onerror = null;
+    note.textContent = "Kayıtlı görüntü açılamadı. Orijinal fotoğrafı Köşeleri düzelt ile açmayı dene.";
+    note.classList.remove("hidden");
+    if (full.thumb) {
+      URL.revokeObjectURL(viewUrl);
+      viewUrl = URL.createObjectURL(full.thumb);
+      img.src = viewUrl;
+    }
+  };
+  if (viewUrl) img.src = viewUrl;
+  else { img.removeAttribute("src"); img.onerror(); }
   $("bk-view").showModal();
 }
-$("bk-view-crop").addEventListener("click", () => {
-  const book = { ...viewing, raw: viewing.raw || viewing.blob };
-  const label = $("bk-view-img").alt;
-  const url = viewUrl;
-  $("bk-view").close();
-  openEdit({ book, label, orig: book.raw, url, quad: book.quad || defaultQuad(0), mode: book.mode, rot: book.rot || 0, flat: book.flat ?? !book.cover }, true);
+$("bk-view-crop").addEventListener("click", async () => {
+  const page = viewing, dialog = $("bk-view"), button = $("bk-view-crop");
+  if (!page || button.disabled) return;
+  button.disabled = true;
+  let photo, savedSource = false;
+  try {
+    photo = await openPhoto(page.raw).catch(() => null);
+    if (!photo) {
+      savedSource = true;
+      photo = await openPhoto(page.blob);
+    }
+    if (viewing !== page || !dialog.open) return;
+    const book = { ...page, raw: photo.blob, decoded: photo.image };
+    const label = $("bk-view-img").alt;
+    dialog.close();
+    ed.origUrl = photo.url;
+    photo = null;
+    openEdit({ book, label, orig: book.raw, url: viewUrl, savedSource,
+      quad: savedSource ? defaultQuad(0) : book.quad || defaultQuad(0),
+      mode: book.mode, rot: savedSource ? 0 : book.rot || 0, flat: book.flat ?? !book.cover }, true);
+  } catch {
+    if (viewing === page && dialog.open) {
+      $("bk-view-note").textContent = "Fotoğraf açılamadı. Bu sayfayı yeniden çekmen gerekiyor.";
+      $("bk-view-note").classList.remove("hidden");
+    }
+  } finally {
+    if (photo) URL.revokeObjectURL(photo.url);
+    button.disabled = false;
+  }
 });
 $("bk-view-close").addEventListener("click", () => $("bk-view").close());
 $("bk-view").addEventListener("click", (e) => { if (e.target === $("bk-view")) $("bk-view").close(); });
@@ -1005,10 +1124,17 @@ $("bk-back").addEventListener("click", async () => {
   if (!last || button.disabled) return;
   button.disabled = true;
   try {
-    if (await store.setLastPageCover(last, bk.mode)) await processPending();
+    const page = await store.getPage(last.id);
+    if (!page?.raw) throw new Error("Orijinal fotoğraf açılamadı.");
+    const cover = page.cover === "back" ? "" : "back";
+    const mode = page.mode === "orig" ? bk.mode : page.mode;
+    const corners = page.keepOriginal && !page.needsCrop ? page.quad : null;
+    const result = await renderBookPhoto({ ...page, cover, mode }, corners, !cover, page.rot || 0);
+    await store.setLastPageCover(last, { ...result, raw: page.raw, cover, mode, reclassify: false,
+      forBack: !cover && !result.needsCrop && !result.needsFocus && !page.keepOriginal });
     await bookRefresh();
   } catch (e) {
-    alert("Son sayfa güncellenemedi: " + e.message);
+    bookProgress(true, 0, "Son sayfa güncellenemedi. Mevcut kayıt korundu. " + e.message);
   } finally {
     button.disabled = false;
   }
@@ -1041,8 +1167,8 @@ async function buildBookPdf(list) {
   if (list.some((p) => p.pending)) throw new Error("Sayfalar işlenirken biraz bekle.");
   const loaders = list.map((p) => async () => {
     const full = await store.getPage(p.id);
-    if (full.mode === "text" && !full.cover && !full.failed) {
-      const bmp = await createImageBitmap(full.blob);
+    if ((full.bilevel ?? full.mode === "text") && !full.cover && !full.failed) {
+      const bmp = await bitmapOf(full.blob);
       const c = document.createElement("canvas");
       c.width = bmp.width; c.height = bmp.height;
       c.getContext("2d").drawImage(bmp, 0, 0);
@@ -1051,9 +1177,10 @@ async function buildBookPdf(list) {
       c.width = c.height = 0;
       return { kind: "bits", bytes, w: full.w, h: full.h };
     }
+    const source = full.blob || full.raw;
     let w = full.w, h = full.h;
-    if (!w || !h) { const b = await createImageBitmap(full.blob); w = b.width; h = b.height; b.close?.(); } // işlenemeyen sayfa: ham hali
-    return { kind: "jpeg", bytes: new Uint8Array(await full.blob.arrayBuffer()), w, h };
+    if (!w || !h) { const b = await bitmapOf(source); w = b.width; h = b.height; b.close?.(); }
+    return { kind: "jpeg", bytes: new Uint8Array(await source.arrayBuffer()), w, h };
   });
   return makePdf(loaders, (f) => bookProgress(true, f, `PDF hazırlanıyor… ${Math.round(f * list.length)}/${list.length}`));
 }
