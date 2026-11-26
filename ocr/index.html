@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Metni Kopyala · Dijital Çakı</title>
+<meta name="theme-color" content="#efede8">
+<link rel="icon" href="/icons/dijital-caki.svg">
+<link rel="stylesheet" href="/tool.css?v=20261126b">
+<script src="/theme.js?v=20261125d"></script>
+<script src="/pdf-epub/vendor/tesseract/tesseract.min.js" defer></script>
+<script type="module" src="app.js"></script>
+</head>
+<body><main class="tool">
+<header><a class="back" href="/belge/">Araçlara dön</a>
+<h1>Metni Kopyala</h1><p class="intro">Fotoğraftaki Türkçe metni çıkar, düzelt ve kopyala.</p></header>
+<section class="panel">
+<label for="file">Belge fotoğrafı</label><input id="file" type="file" accept="image/*">
+<button id="run" class="primary" disabled>Metni çıkar</button><p id="status" role="status"></p>
+<label for="result">Tanınan metin</label><textarea id="result" rows="10" placeholder="Metin burada görünecek"></textarea>
+<div class="row"><button id="copy" disabled>Kopyala</button><button id="download" disabled>TXT indir</button></div></section>
+</main></body></html>
