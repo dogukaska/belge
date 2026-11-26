@@ -2,7 +2,7 @@ import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=12";
 import { detectPage, warmUp } from "./lib/detect.js?v=6";
 import { processPage, warmUpFlatten } from "./lib/flatten.js?v=7";
 import { makePdf, packBits } from "./lib/pdf.js?v=2";
-import * as store from "./lib/store.js?v=4";
+import * as store from "./lib/store.js?v=5";
 
 const $ = (id) => document.getElementById(id);
 const pages = [];          // { id, orig: Blob, ow, oh, quad, mode, rot, out: Blob, w, h, url }
@@ -14,7 +14,7 @@ cvReady().catch(() => {}); // işleyiciyi önceden ısıt
 warmUp(); // yapay zeka köşe bulucuyu önceden yükle
 
 // Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
-const APP_VERSION = "16";
+const APP_VERSION = "17";
 fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
   v = v.trim();
   if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
@@ -35,7 +35,10 @@ document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () 
 // =====================================================================
 // Yardımcılar
 // =====================================================================
-const defaultQuad = () => [{ x: 0.04, y: 0.04 }, { x: 0.96, y: 0.04 }, { x: 0.96, y: 0.96 }, { x: 0.04, y: 0.96 }];
+const defaultQuad = (inset = 0.04) => {
+  const end = 1 - inset;
+  return [{ x: inset, y: inset }, { x: end, y: inset }, { x: end, y: end }, { x: inset, y: end }];
+};
 
 function canvasFromImageData(d) {
   const c = document.createElement("canvas");
@@ -277,6 +280,7 @@ function warmFlat() { if (!flatWarm) { flatWarm = true; warmUpFlatten(); } }
 async function openCamera() {
   warmFlat();
   $("cam").classList.remove("hidden");
+  $("cam-kind").classList.toggle("hidden", tab !== "book");
   document.body.classList.add("noscroll");
   $("cam-hint").textContent = "Kamera açılıyor…";
   cam.shots = 0;
@@ -435,10 +439,11 @@ async function capture(quad) {
   cam.lastSig = cam.sig;
   cam.cool = performance.now() + 1500;
   cam.hist = [];
-  try { await doCapture(quad); } finally { cam.capturing = false; cam.cool = performance.now() + 1200; }
+  const cover = tab === "book" ? $("cam-kind").value : "";
+  try { await doCapture(quad, cover); } finally { cam.capturing = false; cam.cool = performance.now() + 1200; }
 }
 
-async function doCapture(quad) {
+async function doCapture(quad, cover) {
   let vw = video.videoWidth, vh = video.videoHeight;
   // çekim anındaki kareyi tam çözünürlükte al
   const c = document.createElement("canvas");
@@ -463,9 +468,15 @@ async function doCapture(quad) {
   if (fine && (!quad || qdist(fine, quad) < 0.06)) quad = fine;
   const blob = await toBlob(c, "image/jpeg", 0.92);
   c.width = c.height = 0;
+  if (tab === "book") {
+    if (await bookAdd(blob, quad, cover)) {
+      cam.shots++;
+      updateDone();
+    }
+    return;
+  }
   cam.shots++;
   updateDone();
-  if (tab === "book") return bookAdd(blob, quad);
   const p = await addPage(blob, vw, vh, quad);
   if (p?.url) { $("last").style.backgroundImage = `url(${p.url})`; $("last").classList.add("has"); }
 }
@@ -684,7 +695,7 @@ renderList();
 // KİTAP
 // =====================================================================
 const bk = { mode: "text", pages: [], urls: [] };
-let bookQueue = Promise.resolve();
+const COVER_LABELS = { front: "Ön kapak", back: "Arka kapak" };
 const BOOK_SIDE = 2200;
 
 (async () => {
@@ -713,9 +724,17 @@ $("bk-mode").addEventListener("click", (e) => {
 });
 $("bk-title").addEventListener("change", () => store.setMeta("title", $("bk-title").value.trim()).catch(() => {}));
 
+function selectBookKind(cover) {
+  $("bk-kind").value = $("cam-kind").value = cover;
+  $("bk-pick").multiple = !cover;
+}
+for (const id of ["bk-kind", "cam-kind"]) {
+  $(id).addEventListener("change", (e) => selectBookKind(e.target.value));
+}
+
 // Kitap: kamera açıkken sayfalar yalnızca ham kaydedilir (hızlı, kaybolmaz); ağır işleme kamera kapanınca yapılır.
-async function bookAdd(origBlob, quad) {
-  const mode = bk.mode;
+async function bookAdd(origBlob, quad, cover) {
+  const mode = cover ? "orig" : bk.mode;
   try {
     const tb = await createImageBitmap(origBlob, { resizeWidth: 120, resizeQuality: "medium" }).catch(() => null);
     let thumb = null;
@@ -727,13 +746,23 @@ async function bookAdd(origBlob, quad) {
       thumb = await toBlob(t, "image/jpeg", 0.6);
     }
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    await store.putPage({ id, order: Date.now() + Math.random(), raw: origBlob, quad: quad || null, thumb, mode, pending: true, size: 0 });
+    const saved = await store.putPage({ id, order: Date.now() + Math.random(), raw: origBlob, quad: quad || null, thumb, mode, cover, pending: true, size: 0 });
+    if (cover) {
+      for (const id of ["bk-kind", "cam-kind"]) $(id).querySelector(`option[value="${cover}"]`).disabled = true;
+      if ($("bk-kind").value === cover) selectBookKind("");
+    }
+    if (!saved) {
+      alert(`${COVER_LABELS[cover]} zaten eklendi. Değiştirmek için mevcut kapağı sil.`);
+      return false;
+    }
     if (cam.on && thumb) { const u = URL.createObjectURL(thumb); $("last").style.backgroundImage = `url(${u})`; $("last").classList.add("has"); }
   } catch (e) {
     console.error(e);
     alert("Sayfa kaydedilemedi: " + (e.message || e));
+    return false;
   }
   if (!cam.on) processPending();
+  return true;
 }
 
 let processing = null;
@@ -752,17 +781,18 @@ function processPending() {
         if (!rec || !rec.pending) continue;
         try {
           const bmp = await bitmapOf(rec.raw);
-          let quad = rec.quad || (await detectPage(bmp, bmp.width, bmp.height, { max: 1280, minScore: 0.4 }).catch(() => null))?.quad || null;
+          const quad = rec.quad || (await detectPage(bmp, bmp.width, bmp.height, { max: 1280, minScore: 0.4 }).catch(() => null))?.quad || null;
           const img = fullFrame(bmp, bmp.width, bmp.height);
           bmp.close?.();
-          const out = await processPage(img, quad || defaultQuad(), rec.mode === "text" ? "bw" : "gray", true, BOOK_SIDE);
+          const mode = rec.cover ? "orig" : rec.mode === "text" ? "bw" : "gray";
+          const out = await processPage(img, quad || defaultQuad(rec.cover ? 0 : undefined), mode, !rec.cover, BOOK_SIDE);
           const c = canvasFromImageData(out);
           const blob = rec.mode === "text" ? await toBlob(c, "image/png") : await toBlob(c, "image/jpeg", 0.78);
           const t = document.createElement("canvas");
           t.width = 120; t.height = Math.round(120 * c.height / c.width);
           t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
           const thumb = await toBlob(t, "image/jpeg", 0.7);
-          await store.finishPendingPage({ id: rec.id, order: rec.order, blob, thumb, w: c.width, h: c.height, mode: rec.mode, size: blob.size });
+          await store.finishPendingPage({ id: rec.id, order: rec.order, blob, thumb, w: c.width, h: c.height, mode: rec.mode, cover: rec.cover, size: blob.size });
         } catch (e) {
           console.error("sayfa işlenemedi", e);
           // ham hali bozuksa sonsuz döngüye girme
@@ -782,6 +812,11 @@ function processPending() {
 async function bookRefresh() {
   const list = await store.listPages().catch(() => []);
   bk.pages = list;
+  for (const cover of Object.keys(COVER_LABELS)) {
+    const saved = list.some((p) => p.cover === cover);
+    for (const id of ["bk-kind", "cam-kind"]) $(id).querySelector(`option[value="${cover}"]`).disabled = saved;
+    if (saved && $("bk-kind").value === cover) selectBookKind("");
+  }
   bk.urls.forEach((u) => URL.revokeObjectURL(u));
   bk.urls = [];
   $("bk-doc").classList.toggle("hidden", !list.length);
@@ -795,11 +830,15 @@ async function bookRefresh() {
     const li = document.createElement("li");
     li.className = "page glass";
     const img = document.createElement("img");
-    const u = URL.createObjectURL(p.thumb);
-    bk.urls.push(u);
-    img.src = u; img.alt = `Sayfa ${i + 1}`; img.loading = "lazy";
+    if (p.thumb) {
+      const u = URL.createObjectURL(p.thumb);
+      bk.urls.push(u);
+      img.src = u;
+    }
+    img.alt = COVER_LABELS[p.cover] || `Sayfa ${i + 1}`;
+    img.loading = "lazy";
     const n = document.createElement("span");
-    n.className = "num"; n.textContent = i + 1;
+    n.className = "num"; n.textContent = COVER_LABELS[p.cover] || i + 1;
     li.append(img, n);
     if (p.pending) { li.classList.add("pending"); const sp = document.createElement("div"); sp.className = "spinner small"; li.append(sp); }
     li.addEventListener("click", () => bookView(p, i));
@@ -814,7 +853,7 @@ async function bookView(p, i) {
   if (viewUrl) URL.revokeObjectURL(viewUrl);
   viewUrl = URL.createObjectURL(full.blob || full.raw);
   $("bk-view-img").src = viewUrl;
-  $("bk-view-img").alt = `Sayfa ${i + 1}`;
+  $("bk-view-img").alt = COVER_LABELS[p.cover] || `Sayfa ${i + 1}`;
   $("bk-view").showModal();
 }
 $("bk-view-close").addEventListener("click", () => $("bk-view").close());
@@ -829,6 +868,7 @@ $("bk-view-del").addEventListener("click", async () => {
 $("bk-cam").addEventListener("click", openCamera);
 $("bk-pick").addEventListener("change", async (e) => {
   const fs = [...e.target.files]; e.target.value = "";
+  const cover = $("bk-kind").value;
   for (const f of fs) {
     try {
       const bmp = await bitmapOf(f);
@@ -837,7 +877,7 @@ $("bk-pick").addEventListener("change", async (e) => {
       c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
       c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
       bmp.close?.();
-      await bookAdd(await toBlob(c, "image/jpeg", 0.92), null);
+      await bookAdd(await toBlob(c, "image/jpeg", 0.92), null, cover);
     } catch (err) { alert(`“${f.name}” açılamadı.`); }
   }
   bookRefresh();
@@ -850,8 +890,7 @@ function bookProgress(on, f, text) {
   if (text != null) $("bk-status").textContent = text;
 }
 
-async function buildBookPdf() {
-  const list = await store.listPages();
+async function buildBookPdf(list) {
   if (!list.length) throw new Error("Henüz sayfa yok");
   const loaders = list.map((p) => async () => {
     const full = await store.getPage(p.id);
@@ -879,7 +918,7 @@ $("bk-pdf").addEventListener("click", async () => {
   b.disabled = true;
   try {
     await processPending();
-    const pdf = await buildBookPdf();
+    const pdf = await buildBookPdf(await store.listPages());
     bookProgress(true, 1, `Hazır: ${fmtSize(pdf.size)}`);
     download(pdf, `${bookName()}.pdf`);
   } catch (e) { bookProgress(true, 0, e.message || String(e)); }
@@ -891,9 +930,12 @@ $("bk-epub").addEventListener("click", async () => {
   b.disabled = true;
   try {
     await processPending();
-    const pdf = await buildBookPdf();
+    const list = await store.listPages();
+    if (!list.some((p) => !p.cover)) throw new Error("EPUB için en az bir iç sayfa ekle.");
+    const covers = { front: list[0].cover === "front", back: list.at(-1).cover === "back" };
+    const pdf = await buildBookPdf(list);
     bookProgress(true, 1, "Kitap Çevirici açılıyor…");
-    await store.shareFile(`${bookName()}.pdf`, pdf);
+    await store.shareFile(`${bookName()}.pdf`, pdf, covers);
     location.href = "/pdf-epub/?kaynak=belge";
   } catch (e) { bookProgress(true, 0, e.message || String(e)); b.disabled = false; }
 });
