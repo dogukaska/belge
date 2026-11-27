@@ -1,5 +1,6 @@
-import { cvReady, warp, smallFrame, fullFrame } from "./lib/cv.js?v=14";
-import { detectPage, warmUp } from "./lib/detect.js?v=9";
+import { warp, smallFrame, fullFrame } from "./lib/cv.js?v=14";
+import { detectPage, warmUp } from "./lib/detect.js?v=10";
+import { bitmapOf, openPhoto } from "./lib/photo.js?v=1";
 import { processPage, warmUpFlatten } from "./lib/flatten.js?v=9";
 import { makePdf, packBits } from "./lib/pdf.js?v=2";
 import * as store from "./lib/store.js?v=9";
@@ -10,11 +11,8 @@ let uid = 0;
 const DEFAULT_MODE = "color";
 const MAX_SIDE = 3200;
 
-cvReady().catch(() => {}); // işleyiciyi önceden ısıt
-warmUp(); // yapay zeka köşe bulucuyu önceden yükle
-
 // Yeni sürüm yayınlandıysa telefonun eski kopyası yerine onu yükle
-const APP_VERSION = "24";
+const APP_VERSION = "25";
 fetch("version.txt?t=" + Date.now(), { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((v) => {
   v = v.trim();
   if (v && v !== APP_VERSION && !sessionStorage.getItem("yenilendi-" + v)) {
@@ -96,35 +94,6 @@ function toA4(c, tolerance = 0.1) {
   ox.imageSmoothingQuality = "high";
   ox.drawImage(c, 0, 0, w, h);
   return o;
-}
-
-async function bitmapOf(blob) {
-  try {
-    return await createImageBitmap(blob, { imageOrientation: "from-image" });
-  } catch {
-    const { image, url } = await openPhoto(blob);
-    URL.revokeObjectURL(url);
-    return image;
-  }
-}
-
-async function openPhoto(blob) {
-  let url;
-  try {
-    if (!blob?.size) throw new Error();
-    const local = new Blob([await blob.arrayBuffer()], { type: blob.type || "image/jpeg" });
-    url = URL.createObjectURL(local);
-    const image = await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = url;
-    });
-    return { blob: local, image, url };
-  } catch {
-    if (url) URL.revokeObjectURL(url);
-    throw new Error("Fotoğraf açılamadı.");
-  }
 }
 
 /** Sayfanın sonucunu (düzeltilmiş görüntü) üretir */
@@ -380,6 +349,7 @@ async function openCamera() {
       return;
     }
     cam.stream = stream;
+    warmUp();
   } catch (e) {
     if (generation !== cam.generation) return;
     $("cam-hint").textContent = "Kameraya izin verilmedi. Tarayıcı ayarlarından kamera iznini aç ya da “Fotoğraflardan seç”i kullan.";

@@ -1,3 +1,5 @@
+import { bitmapOf } from "../lib/photo.js?v=1";
+
 const $ = id => document.getElementById(id);
 let running = false;
 function update() {
@@ -15,7 +17,7 @@ $("run").addEventListener("click",async ()=>{
   let worker,bitmap,canvas;
   try {
     if(!file.size||file.size>30*1024*1024) throw Error("30 MB’tan küçük bir görsel seç.");
-    bitmap=await createImageBitmap(file);
+    bitmap=await bitmapOf(file);
     const ratio=Math.min(1,2600/Math.max(bitmap.width,bitmap.height));
     canvas=document.createElement("canvas");
     canvas.width=Math.max(1,Math.round(bitmap.width*ratio));canvas.height=Math.max(1,Math.round(bitmap.height*ratio));
@@ -32,7 +34,7 @@ $("run").addEventListener("click",async ()=>{
     $("status").textContent=$("result").value?"Metin hazır. Düzeltip kopyalayabilirsin.":"Okunabilir metin bulunamadı.";
   } catch(e) {$("status").textContent=typeof e==="string"?e:e.message||"Metin okunamadı.";}
   finally {
-    bitmap?.close();if(canvas) canvas.width=canvas.height=0;
+    bitmap?.close?.();if(canvas) canvas.width=canvas.height=0;
     await worker?.terminate().catch(()=>{});
     running=false;update();
   }

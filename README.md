@@ -15,3 +15,5 @@ Belge Tarayıcı’nın otomatik sayfa algılama ve düzleştirme özelliklerine
 Ek PDF araçları [PDF-Lib](https://github.com/Hopding/pdf-lib), [Fontkit](https://github.com/Hopding/fontkit), [PDF.js](https://github.com/mozilla/pdf.js), [Tesseract.js](https://github.com/naptha/tesseract.js) ve Türkçe karakterleri içeren [DejaVu](https://dejavu-fonts.github.io/) altkümeleri kullanır.
 
 PDF araçlarının geliştirilmesi, tarama akışının incelenmesi ve dosya testleri OpenAI Codex desteğiyle yapıldı.
+
+Tarama modelinin yüklenme zamanı ve fotoğraftan Türkçe OCR’ın tarayıcı uyumluluğu OpenAI Codex desteğiyle geliştirildi.
