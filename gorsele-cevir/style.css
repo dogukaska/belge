@@ -1,0 +1,6 @@
+.pdf-images #options { border: 0; padding: 0; min-inline-size: 0; }
+.pdf-images label + input { margin-top: 3px; }
+.pdf-images #range-help { margin: 5px 0 10px; }
+.pdf-images .image-settings { align-items: end; }
+.pdf-images :is(input, select) { min-inline-size: 0; max-inline-size: 100%; }
+.pdf-images select { display: block; margin-top: 3px; }

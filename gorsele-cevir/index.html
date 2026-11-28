@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PDF’yi Görsele Çevir · Dijital Çakı</title>
+<meta name="description" content="Seçtiğin PDF sayfalarını tarayıcıda JPG veya PNG görseline dönüştür.">
+<link rel="icon" href="/icons/dijital-caki.svg">
+<link rel="stylesheet" href="/tool.css?v=20261126d">
+<link rel="stylesheet" href="/gunluk/style.css?v=1">
+<link rel="stylesheet" href="style.css?v=1">
+<script src="/theme.js?v=20261126c"></script>
+<script type="module" src="app.js?v=1"></script>
+</head>
+<body>
+<main class="tool daily pdf-images">
+<header>
+  <a class="back" href="/#belge">Uygulamalar</a>
+  <h1>PDF’yi Görsele Çevir</h1>
+  <p class="intro">PDF sayfalarını JPG veya PNG olarak indir.</p>
+</header>
+<form id="settings">
+  <section class="panel">
+    <label for="file">PDF seç</label>
+    <input id="file" type="file" accept=".pdf,application/pdf">
+    <p id="file-info" class="muted" aria-live="polite" hidden></p>
+  </section>
+  <fieldset id="options" class="panel">
+    <label for="range">Sayfalar</label>
+    <input id="range" placeholder="1–3, 5" maxlength="1200" aria-describedby="range-help">
+    <p id="range-help" class="muted">Tüm sayfalar için boş bırak. Birden fazla görsel ZIP olarak iner.</p>
+    <div class="dual image-settings">
+      <label>Görsel biçimi
+        <select id="format"><option value="png">PNG</option><option value="jpg">JPG</option></select>
+      </label>
+      <label>En uzun kenar
+        <select id="size">
+          <option value="1200">En fazla 1.200 px</option>
+          <option value="1800" selected>En fazla 1.800 px</option>
+          <option value="2400">En fazla 2.400 px</option>
+          <option value="3200">En fazla 3.200 px</option>
+        </select>
+      </label>
+    </div>
+  </fieldset>
+  <div class="row">
+    <button type="submit" class="primary" id="run" disabled>Görselleri hazırla</button>
+    <button type="button" id="cancel" hidden>İptal</button>
+    <a id="download" class="button" hidden></a>
+  </div>
+  <p id="status" role="status"></p>
+</form>
+<p class="muted">PDF bu cihazda işlenir.</p>
+</main>
+</body>
+</html>

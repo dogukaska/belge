@@ -1,14 +1,18 @@
 import * as pdfjs from "/pdf-epub/vendor/pdfjs/pdf.min.mjs";
 pdfjs.GlobalWorkerOptions.workerSrc = "/pdf-epub/vendor/pdfjs/pdf.worker.min.mjs";
 
-export function openReader(bytes) {
-  return pdfjs.getDocument({
-    data: new Uint8Array(bytes.slice(0)),
+export function openReader(bytes, { transfer = false } = {}) {
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(transfer ? bytes : bytes.slice(0)),
     isEvalSupported: false,
     cMapUrl: "/pdf-epub/vendor/pdfjs/cmaps/",
     cMapPacked: true,
     standardFontDataUrl: "/pdf-epub/vendor/pdfjs/standard_fonts/",
-  }).promise;
+  });
+  return task.promise.catch(async error => {
+    await task.destroy().catch(() => {});
+    throw error;
+  });
 }
 
 export async function hasReadableText(page) {
@@ -27,6 +31,10 @@ export const makeCanvas = () => document.createElement("canvas");
 export async function renderPage(reader, pageNumber, limit, canvas = makeCanvas(), job) {
   job?.signal.throwIfAborted();
   const page = await reader.getPage(pageNumber);
+  if (job?.signal.aborted) {
+    page.cleanup();
+    job.signal.throwIfAborted();
+  }
   const original = page.getViewport({ scale: 1 });
   const viewport = page.getViewport({ scale: Math.min(4, limit / Math.max(original.width, original.height)) });
   canvas.width = Math.ceil(viewport.width);
