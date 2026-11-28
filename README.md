@@ -17,3 +17,5 @@ Ek PDF araçları [PDF-Lib](https://github.com/Hopding/pdf-lib), [Fontkit](https
 PDF araçlarının geliştirilmesi, tarama akışının incelenmesi ve dosya testleri OpenAI Codex desteğiyle yapıldı.
 
 Tarama modelinin yüklenme zamanı ve fotoğraftan Türkçe OCR’ın tarayıcı uyumluluğu OpenAI Codex desteğiyle geliştirildi.
+
+[PDF’yi Görsele Çevir](https://dogukaska.github.io/belge/gorsele-cevir/), seçili sayfaları tarayıcıda PNG veya JPG olarak ayrı ayrı hazırlar. Birden fazla görsel JSZip ile tek ZIP dosyasına konur. Araç ve kontroller OpenAI Codex desteğiyle geliştirildi.
